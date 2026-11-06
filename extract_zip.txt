@@ -1,0 +1,6 @@
+# Cấu hình giải nén: <đường dẫn file zip> <đường dẫn folder giải nén> ./data/objectnet.zip ./data/objectnet
+./data/cub.zip ./data/cub
+./data/imagenet-r.zip ./data/imagenet-r
+./data/imagenet-a.zip ./data/imagenet-a
+./data/omnibenchmark.zip ./data/omnibenchmark
+./data/vtab.zip ./data/vtab

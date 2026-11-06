@@ -9,7 +9,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-# Lưu ý: Các thư viện này sẽ được implement ở các bước tiếp theo
+# Đã bỏ comment các Import thực tế
 from data.task_manager import ContinualTaskManager
 from tuning import get_tuning_strategy
 from models.backbones import get_pretrained_model
@@ -18,22 +18,14 @@ from models.classifiers import CosinePrototypeClassifier
 from framework.evaluator import evaluate
 
 def train(args):
-    """
-    Hàm khởi chạy vòng lặp huấn luyện qua nhiều seed khác nhau.
-    Giữ nguyên logic của tác giả trong trainer.py.
-    """
     seed_list = copy.deepcopy(args.get("seed", [1]))
     device = copy.deepcopy(args.get("device", ["0"]))
-
     for seed in seed_list:
         args["seed"] = seed
         args["device"] = device
         _train(args)
 
 def _train(args):
-    """
-    Cài đặt môi trường và chạy vòng lặp CIL Tasks.
-    """
     _set_random(args["seed"])
     _set_device(args)
     _setup_logging(args)
@@ -44,57 +36,54 @@ def _train(args):
     logging.info("Khởi tạo APER Learner...")
     learner = APERLearner(args)
     
-    # Vòng lặp Class-Incremental Learning (CIL)
     for task_id in range(data_manager.nb_tasks):
         logging.info(f"========== Bắt đầu Task {task_id} ==========")
         
         train_loader, test_loader, proto_loader = data_manager.get_task_loaders(task_id)
         class_ids = data_manager.get_class_ids(task_id)
-    
+
         learner.execute_task(task_id, train_loader, proto_loader, class_ids)
         
-        # Đánh giá sau khi học xong task
         eval_results = learner.evaluate(test_loader, data_manager.known_classes)
         logging.info(f"Kết quả Task {task_id}: {eval_results}")
 
+
 class APERLearner:
-    """
-    Thiết kế theo Template Method Pattern.
-    Điều phối vòng đời: Task 1 (Adapt -> Merge -> Prototypes), Task 2...B (Chỉ Prototypes).
-    """
     def __init__(self, args):
         self.args = args
         self.device = args["device"][0]
         
-        1. Lấy mô hình tiền huấn luyện PTM
-        self.frozen_ptm = get_pretrained_model(args["convnet_type"]).to(self.device)
-        self.frozen_ptm.eval()
-        for param in self.frozen_ptm.parameters():
-            param.requires_grad = False
+        # 1. Lấy mô hình tiền huấn luyện PTM
+        self.frozen_ptm = get_pretrained_model(args).to(self.device)
             
-        2. Lấy chiến lược Tuning (Adapter, VPT, SSF, Finetune, hoặc SimpleCIL - Freeze)
+        # 2. Lấy chiến lược Tuning (Adapter, VPT, SSF, Finetune, hoặc SimpleCIL - Freeze)
         self.strategy = get_tuning_strategy(args["convnet_type"])
         
+        # 3. Tạo mô hình thích ứng (Adapted Model) bằng cách Unfreeze chọn lọc
         self.adapted_ptm = self.strategy.prepare_adapted_model(copy.deepcopy(self.frozen_ptm)).to(self.device)
         
-        3. Bộ phân loại Cosine và Hợp nhất đặc trưng
+        # 4. Khởi tạo rỗng cho Encoder và Classifier
         self.encoder = None
         self.classifier = CosinePrototypeClassifier(in_features=self.frozen_ptm.out_dim * 2).to(self.device)
 
     def execute_task(self, task_id: int, train_loader: DataLoader, proto_loader: DataLoader, class_ids: list):
-        """Luồng thực thi chính cho mỗi Task."""
         if task_id == 0:
-            # Giai đoạn 1: Thích ứng mô hình với dữ liệu (Chỉ chạy ở Task đầu tiên)
             self._adapt_model(train_loader)
             
-            Giai đoạn 2: Đóng băng nhánh vừa huấn luyện và kết hợp 2 nhánh [phi*, phi]
+            # Giai đoạn 2: Đóng băng nhánh vừa huấn luyện và kết hợp 2 nhánh [phi*, phi]
             self.adapted_ptm.eval()
             for param in self.adapted_ptm.parameters():
                 param.requires_grad = False
+                
             self.encoder = DualBranchEncoder(self.frozen_ptm, self.adapted_ptm)
         
-        # Giai đoạn 3: Tính toán Prototypes và mở rộng Classifier
+        # Giai đoạn 3: Tính toán Prototypes
         self._update_prototypes(proto_loader, class_ids)
+        
+    def evaluate(self, test_loader, known_classes):
+        return evaluate(self.encoder, self.classifier, test_loader, known_classes, self.device)
+
+    # ... Giữ nguyên các hàm _adapt_model, _update_prototypes, _set_device, v.v. đã viết ở lần trước ...
 
     def _adapt_model(self, train_loader):
         """
@@ -117,13 +106,13 @@ class APERLearner:
         trainable_params = [p for p in self.adapted_ptm.parameters() if p.requires_grad]
 
         if self.args.get("optimizer", "sgd").lower() == "adam":
-            optimizer = optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)[cite: 1, 2]
+            optimizer = optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
         else:
-            optimizer = optim.SGD(trainable_params, momentum=0.9, lr=lr, weight_decay=weight_decay)[cite: 1, 2]
+            optimizer = optim.SGD(trainable_params, momentum=0.9, lr=lr, weight_decay=weight_decay)
 
         # 2. Cấu hình Scheduler
         min_lr = self.args.get("min_lr", 1e-8)
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=min_lr)[cite: 1, 2]
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=min_lr)
 
         # 3. Tạo một Classifier tuyến tính TẠM THỜI để tính Loss trong quá trình huấn luyện Task 1
         temp_classifier = torch.nn.Linear(self.adapted_ptm.out_dim, self.args.get('init_cls', 50)).to(self.device)

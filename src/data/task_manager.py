@@ -1,11 +1,11 @@
 import logging
 import numpy as np
 from torch.utils.data import DataLoader
+from .datasets import get_dataset, ContinualDataset
 
 class ContinualTaskManager:
     """
     Quản lý tập dữ liệu (Dataset) và phân chia thành các CIL Tasks (Sessions).
-  
     """
     def __init__(self, args):
         self.dataset_name = args.get("dataset", "cifar100").lower()
@@ -58,7 +58,6 @@ class ContinualTaskManager:
         new_classes = np.arange(start_cls, end_cls)
         all_seen_classes = np.arange(0, end_cls)
         
-        # Giả định _get_dataset sẽ bọc lấy các hàm get_dataset từ `utils/data_manager.py` của code cũ
         train_dataset = self._get_dataset(new_classes, source="train", mode="train")
         test_dataset = self._get_dataset(all_seen_classes, source="test", mode="test")
         proto_dataset = self._get_dataset(new_classes, source="train", mode="test")
@@ -71,7 +70,35 @@ class ContinualTaskManager:
         self.known_classes = end_cls
         
         return train_loader, test_loader, proto_loader
-        pass
+
+    def _get_dataset(self, indices, source, mode):
+        """
+        Hàm lọc dữ liệu dựa trên danh sách các lớp (indices) được yêu cầu.
+        """
+        if source == "train":
+            x, y = self.data_source.train_data, self.data_source.train_targets
+        elif source == "test":
+            x, y = self.data_source.test_data, self.data_source.test_targets
+        else:
+            raise ValueError(f"Nguồn dữ liệu không hợp lệ: {source}")
+
+        if mode == "train":
+            trsf = self.data_source.train_trsf
+        elif mode == "test":
+            trsf = self.data_source.test_trsf
+        else:
+            raise ValueError(f"Chế độ không hợp lệ: {mode}")
+
+        data, targets = [], []
+        for idx in indices:
+            idxes = np.where(y == idx)[0]
+            data.append(x[idxes])
+            targets.append(y[idxes])
+
+        data = np.concatenate(data) if len(data) > 0 else np.array([])
+        targets = np.concatenate(targets) if len(targets) > 0 else np.array([])
+
+        return ContinualDataset(data, targets, trsf, self.data_source.use_path)
 
     def _setup_data(self):
         self.data_source = get_dataset(self.dataset_name)
@@ -83,3 +110,7 @@ class ContinualTaskManager:
             np.random.seed(self.seed)
             np.random.shuffle(order)
         self._class_order = order
+
+        # QUAN TRỌNG: Ánh xạ nhãn (labels) cũ sang nhãn mới dựa trên class_order
+        self.data_source.train_targets = np.array([self._class_order.index(l) for l in self.data_source.train_targets])
+        self.data_source.test_targets = np.array([self._class_order.index(l) for l in self.data_source.test_targets])

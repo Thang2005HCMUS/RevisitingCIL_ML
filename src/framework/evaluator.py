@@ -36,7 +36,7 @@ def _compute_metrics(y_pred: np.ndarray, y_true: np.ndarray, nb_old: int, increm
     """
     Tính toán các chỉ số độ đo chi tiết cho CIL: Top-1, Top-5, In-Task, Old-Task[cite: 5, 7].
     """
-    assert len(y_pred) == len(y_true), "Lỗi: Số lượng dự đoán và nhãn thực tế không khớp[cite: 7]."
+    assert len(y_pred) == len(y_true)
     
     metrics = {}
     
@@ -55,7 +55,7 @@ def _compute_metrics(y_pred: np.ndarray, y_true: np.ndarray, nb_old: int, increm
         idxes = np.where(np.logical_and(y_true >= class_id, y_true < class_id + increment))[0]
         if len(idxes) > 0:
             label = f"{str(class_id).rjust(2, '0')}-{str(class_id + increment - 1).rjust(2, '0')}"
-            grouped[label] = np.around((y_pred[idxes, 0] == y_true[idxes]).sum() * 100 / len(idxes), decimals=2)[cite: 7]
+            grouped[label] = np.around((y_pred[idxes, 0] == y_true[idxes]).sum() * 100 / len(idxes), decimals=2)
     metrics["grouped"] = grouped
 
     # Độ chính xác trên các lớp cũ (Old Classes Accuracy)[cite: 7]

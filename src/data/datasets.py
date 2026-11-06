@@ -117,8 +117,8 @@ class ImageNetRData(BaseData):
     test_trsf = build_transform(is_train=False)
 
     def download_data(self):
-        train_dir = "./data/imagenet-r/train/"
-        test_dir = "./data/imagenet-r/test/"
+        train_dir = "./data/imagenet-r/imagenet-r/train/"
+        test_dir = "./data/imagenet-r/imagenet-r/test/"
         
         train_dset = datasets.ImageFolder(train_dir)
         test_dset = datasets.ImageFolder(test_dir)
@@ -134,8 +134,8 @@ class CUBData(BaseData):
     test_trsf = build_transform(is_train=False)
 
     def download_data(self):
-        train_dir = "./data/cub/train/"
-        test_dir = "./data/cub/test/"
+        train_dir = "./data/cub/cub/train/"
+        test_dir = "./data/cub/cub/test/"
         
         train_dset = datasets.ImageFolder(train_dir)
         test_dset = datasets.ImageFolder(test_dir)

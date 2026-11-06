@@ -1,0 +1,15 @@
+# Danh sách models PyTorch ResNet & ViT được sử dụng trong mã nguồn:
+https://download.pytorch.org/models/resnet18-f37072fd.pth
+https://download.pytorch.org/models/resnet50-11ad3fa6.pth
+https://download.pytorch.org/models/resnet101-cd907fc2.pth
+https://download.pytorch.org/models/resnet152-f82ba261.pth
+https://download.pytorch.org/models/resnet18-5c106cde.pth
+https://download.pytorch.org/models/resnet34-333f7ec4.pth
+https://download.pytorch.org/models/resnet50-19c8e357.pth
+https://download.pytorch.org/models/resnet101-5d3b4d8f.pth
+https://download.pytorch.org/models/resnet152-b121ed2d.pth
+https://download.pytorch.org/models/resnext50_32x4d-7cdf4587.pth
+https://download.pytorch.org/models/resnext101_32x8d-8ba56ff5.pth
+https://download.pytorch.org/models/wide_resnet50_2-95faca4d.pth
+https://download.pytorch.org/models/wide_resnet101_2-32ee1156.pth
+https://storage.googleapis.com/vit_models/augreg/B_16-i21k-300ep-lr_0.001-aug_medium1-wd_0.1-do_0.0-sd_0.0.npz

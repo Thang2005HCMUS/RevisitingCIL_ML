@@ -117,8 +117,8 @@ class ImageNetRData(BaseData):
     test_trsf = build_transform(is_train=False)
 
     def download_data(self):
-        train_dir = "./data/imagenet-r/imagenet-r/train/"
-        test_dir = "./data/imagenet-r/imagenet-r/test/"
+        train_dir = "./data/imagenet-r/train/"
+        test_dir = "./data/imagenet-r/test/"
         
         train_dset = datasets.ImageFolder(train_dir)
         test_dset = datasets.ImageFolder(test_dir)
@@ -126,6 +126,22 @@ class ImageNetRData(BaseData):
         self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
         self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
 
+class ImageNetAData(BaseData):
+    use_path = True
+    class_order = np.arange(200).tolist()
+    
+    train_trsf = build_transform(is_train=True)
+    test_trsf = build_transform(is_train=False)
+
+    def download_data(self):
+        train_dir = "./data/imagenet-a/train/"
+        test_dir = "./data/imagenet-a/test/"
+        
+        train_dset = datasets.ImageFolder(train_dir)
+        test_dset = datasets.ImageFolder(test_dir)
+        
+        self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
+        self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
 class CUBData(BaseData):
     use_path = True
     class_order = np.arange(200).tolist()
@@ -134,8 +150,8 @@ class CUBData(BaseData):
     test_trsf = build_transform(is_train=False)
 
     def download_data(self):
-        train_dir = "./data/cub/cub/train/"
-        test_dir = "./data/cub/cub/test/"
+        train_dir = "./data/cub/train/"
+        test_dir = "./data/cub/test/"
         
         train_dset = datasets.ImageFolder(train_dir)
         test_dset = datasets.ImageFolder(test_dir)
@@ -160,6 +176,22 @@ class CIFAR224Data(BaseData):
         
         self.test_data = test_dataset.data
         self.test_targets = np.array(test_dataset.targets)
+class OMNIData(BaseData):
+    use_path = True
+    class_order = np.arange(200).tolist()
+    
+    train_trsf = build_transform(is_train=True)
+    test_trsf = build_transform(is_train=False)
+
+    def download_data(self):
+        train_dir = "./data/omnibenchmark/train/"
+        test_dir = "./data/omnibenchmark/test/"
+        
+        train_dset = datasets.ImageFolder(train_dir)
+        test_dset = datasets.ImageFolder(test_dir)
+        
+        self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
+        self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
 
 # ==============================================================================
 # 4. FACTORY GET_DATASET
@@ -177,6 +209,8 @@ def get_dataset(dataset_name: str) -> BaseData:
         return CUBData()
     elif name == "cifar224":  # <--- Thêm dòng này ở đây
         return CIFAR224Data()
+    elif name == "omnibenchmark":
+        return OMNIData()
     # Bạn có thể bổ sung ObjectNet, OmniBenchmark, ImageNet-A tại đây nếu cần[cite: 8].
     else:
         raise NotImplementedError(f"Dataset '{dataset_name}' chưa được hỗ trợ.")

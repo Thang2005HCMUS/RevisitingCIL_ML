@@ -142,6 +142,24 @@ class CUBData(BaseData):
         
         self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
         self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
+class CIFAR224Data(BaseData):
+    use_path = False
+    class_order = np.arange(100).tolist()
+    
+    # Sử dụng build_transform với kích thước chuẩn 224x224 cho ViT
+    train_trsf = build_transform(is_train=True, input_size=224)
+    test_trsf = build_transform(is_train=False, input_size=224)
+
+    def download_data(self):
+        # Tải dataset CIFAR-100 gốc từ PyTorch nhưng xử lý qua transform 224
+        train_dataset = datasets.CIFAR100("./data", train=True, download=True)
+        test_dataset = datasets.CIFAR100("./data", train=False, download=True)
+        
+        self.train_data = train_dataset.data
+        self.train_targets = np.array(train_dataset.targets)
+        
+        self.test_data = test_dataset.data
+        self.test_targets = np.array(test_dataset.targets)
 
 # ==============================================================================
 # 4. FACTORY GET_DATASET
@@ -157,6 +175,8 @@ def get_dataset(dataset_name: str) -> BaseData:
         return ImageNetRData()
     elif name == "cub":
         return CUBData()
+    elif name == "cifar224":  # <--- Thêm dòng này ở đây
+        return CIFAR224Data()
     # Bạn có thể bổ sung ObjectNet, OmniBenchmark, ImageNet-A tại đây nếu cần[cite: 8].
     else:
         raise NotImplementedError(f"Dataset '{dataset_name}' chưa được hỗ trợ.")

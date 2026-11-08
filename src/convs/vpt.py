@@ -1,7 +1,8 @@
 import timm
 import torch
 import torch.nn as nn
-from timm.models.vision_transformer import VisionTransformer, PatchEmbed
+from timm.models.vision_transformer import VisionTransformer
+from timm.layers import PatchEmbed
 
 def build_promptmodel(modelname='vit_base_patch16_224',  Prompt_Token_num=10, VPT_type="Deep"):
     

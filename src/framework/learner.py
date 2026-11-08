@@ -38,13 +38,13 @@ def _train(args):
     
     for task_id in range(data_manager.nb_tasks):
         logging.info(f"========== Bắt đầu Task {task_id} ==========")
-        
+        nb_old = data_manager.known_classes
         train_loader, test_loader, proto_loader = data_manager.get_task_loaders(task_id)
         class_ids = data_manager.get_class_ids(task_id)
-
+    
         learner.execute_task(task_id, train_loader, proto_loader, class_ids)
         
-        eval_results = learner.evaluate(test_loader, data_manager.known_classes)
+        eval_results = learner.evaluate(test_loader, nb_old )
         logging.info(f"Kết quả Task {task_id}: {eval_results}")
 
 

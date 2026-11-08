@@ -2,7 +2,7 @@ from .base import TuningStrategy
 from .linear_probe import FreezeStrategy
 from .scale_shift import SSFStrategy
 from .adapter import AdapterStrategy
-# from .prompt import PromptStrategy  # Tương tự cho VPT
+from .prompt import PromptStrategy  # Tương tự cho VPT
 
 def get_tuning_strategy(convnet_type: str) -> TuningStrategy:
     """

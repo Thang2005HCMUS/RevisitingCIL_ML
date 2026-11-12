@@ -12,7 +12,10 @@ class TuningStrategy(ABC):
     def requires_training(self) -> bool:
         """Trả về True nếu chiến lược này cần huấn luyện ở Task 1, False nếu bỏ qua (như SimpleCIL)."""
         pass
-
+    @property
+    def is_forward_only(self) -> bool:
+        """Trả về True nếu chiến lược chỉ yêu cầu Forward Pass (như BN Tuning)."""
+        return False
     @abstractmethod
     def prepare_adapted_model(self, backbone: nn.Module) -> nn.Module:
         """

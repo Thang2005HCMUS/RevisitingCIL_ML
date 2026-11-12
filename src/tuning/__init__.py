@@ -3,7 +3,8 @@ from .linear_probe import FreezeStrategy
 from .scale_shift import SSFStrategy
 from .adapter import AdapterStrategy
 from .prompt import PromptStrategy  # Tương tự cho VPT
-
+from .bn import BNTuningStrategy
+from .finetune import FinetuneStrategy
 def get_tuning_strategy(convnet_type: str) -> TuningStrategy:
     """
     Hàm Factory để trả về TuningStrategy phù hợp dựa trên tên convnet.
@@ -18,6 +19,10 @@ def get_tuning_strategy(convnet_type: str) -> TuningStrategy:
     elif "vpt" in convnet_type:
         return PromptStrategy() 
         pass
+    elif "bn" in convnet_type or "bn" in model_name: # <--- Bắt sự kiện BN Tuning
+        return BNTuningStrategy()
+    elif "finetune" in convnet_type or "finetune" in model_name: # <--- Bắt sự kiện Finetune
+        return FinetuneStrategy()
     else:
         # Mặc định là SimpleCIL (đóng băng hoàn toàn)[cite: 3, 23]
         return FreezeStrategy()

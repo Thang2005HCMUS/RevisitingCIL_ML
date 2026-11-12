@@ -93,7 +93,18 @@ class APERLearner:
         if not self.strategy.requires_training:
             logging.info("Chiến lược hiện tại không yêu cầu huấn luyện (SimpleCIL). Bỏ qua bước Adapt.")
             return
-
+        if getattr(self.strategy, 'is_forward_only', False):
+            logging.info("Bắt đầu tinh chỉnh bằng Forward Pass (BN Tuning)...")
+            self.adapted_ptm.train() # Bắt buộc là train() để BN cập nhật running stats
+            self.adapted_ptm.to(self.device)
+            
+            with torch.no_grad(): # Tắt tính toán đạo hàm
+                for _, inputs, _ in train_loader:
+                    inputs = inputs.to(self.device)
+                    _ = self.adapted_ptm(inputs)
+                    
+            logging.info("Hoàn tất cập nhật Batch Normalization (Không dùng Backprop).")
+            return
         epochs = self.args.get("tuned_epoch", 20)
         logging.info(f"Bắt đầu tinh chỉnh (Adaptation) trong {epochs} epochs...")
         

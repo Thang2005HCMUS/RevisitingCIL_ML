@@ -125,6 +125,22 @@ class ImageNetRData(BaseData):
         
         self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
         self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
+class VtabData(BaseData):
+    use_path = True
+    class_order = np.arange(200).tolist()
+    
+    train_trsf = build_transform(is_train=True)
+    test_trsf = build_transform(is_train=False)
+
+    def download_data(self):
+        train_dir = "./data/vtab/train/"
+        test_dir = "./data/vtab/test/"
+        
+        train_dset = datasets.ImageFolder(train_dir)
+        test_dset = datasets.ImageFolder(test_dir)
+        
+        self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
+        self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
 
 class ImageNetAData(BaseData):
     use_path = True
@@ -211,6 +227,8 @@ def get_dataset(dataset_name: str) -> BaseData:
         return CIFAR224Data()
     elif name == "omnibenchmark":
         return OMNIData()
+    elif name == "vtab":
+        return VtabData();
     # Bạn có thể bổ sung ObjectNet, OmniBenchmark, ImageNet-A tại đây nếu cần[cite: 8].
     else:
         raise NotImplementedError(f"Dataset '{dataset_name}' chưa được hỗ trợ.")

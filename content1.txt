@@ -4860,6 +4860,22 @@ class ImageNetRData(BaseData):
         
         self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
         self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
+class VtabData(BaseData):
+    use_path = True
+    class_order = np.arange(200).tolist()
+    
+    train_trsf = build_transform(is_train=True)
+    test_trsf = build_transform(is_train=False)
+
+    def download_data(self):
+        train_dir = "./data/vtab/train/"
+        test_dir = "./data/vtab/test/"
+        
+        train_dset = datasets.ImageFolder(train_dir)
+        test_dset = datasets.ImageFolder(test_dir)
+        
+        self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
+        self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
 
 class ImageNetAData(BaseData):
     use_path = True
@@ -4946,6 +4962,8 @@ def get_dataset(dataset_name: str) -> BaseData:
         return CIFAR224Data()
     elif name == "omnibenchmark":
         return OMNIData()
+    elif name == "vtab":
+        return VtabData();
     # Bạn có thể bổ sung ObjectNet, OmniBenchmark, ImageNet-A tại đây nếu cần[cite: 8].
     else:
         raise NotImplementedError(f"Dataset '{dataset_name}' chưa được hỗ trợ.")
@@ -4969,6 +4987,37 @@ class FreezeStrategy(TuningStrategy):
         for param in backbone.parameters():
             param.requires_grad = False
         backbone.eval()
+        return backbone
+====src/tuning/bn.py
+import torch.nn as nn
+import logging
+from .base import TuningStrategy
+
+class BNTuningStrategy(TuningStrategy):
+    """
+    Chiến lược Batch Normalization (BN) Tuning.
+    Chỉ cập nhật lại running_mean và running_var qua Forward Pass, không dùng Backprop.
+    """
+    @property
+    def requires_training(self) -> bool:
+        return True # Vẫn cần data loader để chạy qua mô hình
+
+    @property
+    def is_forward_only(self) -> bool:
+        return True # Flag báo cho Learner biết không dùng Backprop
+
+    def prepare_adapted_model(self, backbone: nn.Module) -> nn.Module:
+        # 1. Đóng băng toàn bộ tham số
+        for param in backbone.parameters():
+            param.requires_grad = False
+            
+        # 2. Reset thống kê của BN và đặt momentum = None để tính trung bình cộng dồn
+        for m in backbone.modules():
+            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                m.reset_running_stats()
+                m.momentum = None 
+                
+        logging.info("BN Tuning Strategy: Freeze all parameters, reset BN stats (momentum=None).")
         return backbone
 ====src/tuning/adapter.py
 import torch.nn as nn
@@ -5031,13 +5080,42 @@ class PromptStrategy(TuningStrategy):
         logging.info(f"VPT Strategy: Total params: {total_params:,} | Trainable params: {trainable_params:,}")
         
         return backbone
+====src/tuning/finetune.py
+import torch.nn as nn
+import logging
+from .base import TuningStrategy
+
+class FinetuneStrategy(TuningStrategy):
+    """
+    Chiến lược Fully Finetune.
+    Mở khóa và huấn luyện toàn bộ tham số của mô hình tiền huấn luyện (PTM)
+    bằng lan truyền ngược (Backpropagation).
+    """
+    @property
+    def requires_training(self) -> bool:
+        return True
+
+    def prepare_adapted_model(self, backbone: nn.Module) -> nn.Module:
+        # Mở khóa toàn bộ tham số của backbone
+        for param in backbone.parameters():
+            param.requires_grad = True
+            
+        # Log thông tin để kiểm tra
+        total_params = sum(p.numel() for p in backbone.parameters())
+        trainable_params = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
+        
+        logging.info(f"Finetune Strategy: Mở khóa toàn bộ tham số.")
+        logging.info(f"Total params: {total_params:,} | Trainable params: {trainable_params:,}")
+        
+        return backbone
 ====src/tuning/__init__.py
 from .base import TuningStrategy
 from .linear_probe import FreezeStrategy
 from .scale_shift import SSFStrategy
 from .adapter import AdapterStrategy
 from .prompt import PromptStrategy  # Tương tự cho VPT
-
+from .bn import BNTuningStrategy
+from .finetune import FinetuneStrategy
 def get_tuning_strategy(convnet_type: str) -> TuningStrategy:
     """
     Hàm Factory để trả về TuningStrategy phù hợp dựa trên tên convnet.
@@ -5052,6 +5130,10 @@ def get_tuning_strategy(convnet_type: str) -> TuningStrategy:
     elif "vpt" in convnet_type:
         return PromptStrategy() 
         pass
+    elif "bn" in convnet_type or "bn" in model_name: # <--- Bắt sự kiện BN Tuning
+        return BNTuningStrategy()
+    elif "finetune" in convnet_type or "finetune" in model_name: # <--- Bắt sự kiện Finetune
+        return FinetuneStrategy()
     else:
         # Mặc định là SimpleCIL (đóng băng hoàn toàn)[cite: 3, 23]
         return FreezeStrategy()
@@ -5070,7 +5152,10 @@ class TuningStrategy(ABC):
     def requires_training(self) -> bool:
         """Trả về True nếu chiến lược này cần huấn luyện ở Task 1, False nếu bỏ qua (như SimpleCIL)."""
         pass
-
+    @property
+    def is_forward_only(self) -> bool:
+        """Trả về True nếu chiến lược chỉ yêu cầu Forward Pass (như BN Tuning)."""
+        return False
     @abstractmethod
     def prepare_adapted_model(self, backbone: nn.Module) -> nn.Module:
         """
@@ -5503,7 +5588,18 @@ class APERLearner:
         if not self.strategy.requires_training:
             logging.info("Chiến lược hiện tại không yêu cầu huấn luyện (SimpleCIL). Bỏ qua bước Adapt.")
             return
-
+        if getattr(self.strategy, 'is_forward_only', False):
+            logging.info("Bắt đầu tinh chỉnh bằng Forward Pass (BN Tuning)...")
+            self.adapted_ptm.train() # Bắt buộc là train() để BN cập nhật running stats
+            self.adapted_ptm.to(self.device)
+            
+            with torch.no_grad(): # Tắt tính toán đạo hàm
+                for _, inputs, _ in train_loader:
+                    inputs = inputs.to(self.device)
+                    _ = self.adapted_ptm(inputs)
+                    
+            logging.info("Hoàn tất cập nhật Batch Normalization (Không dùng Backprop).")
+            return
         epochs = self.args.get("tuned_epoch", 20)
         logging.info(f"Bắt đầu tinh chỉnh (Adaptation) trong {epochs} epochs...")
         

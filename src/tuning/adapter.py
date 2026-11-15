@@ -12,13 +12,13 @@ class AdapterStrategy(TuningStrategy):
         return True
 
     def prepare_adapted_model(self, backbone: nn.Module) -> nn.Module:
-        # Trong Adapter, PTM ban đầu thường đã được load kèm cấu trúc Adapter từ hàm get_convnet.
-        # Ở đây ta giả định các tham số Adapter đã có tên nhận diện đặc trưng, ví dụ 'adaptmlp' hoặc không có trong bộ pre-trained.
-        # Dựa trên logic của tác giả trong aper_adapter.py, ta lấy các tham số requires_grad = True[cite: 3]
-        
-        # (Lưu ý: Mã gốc xử lý việc gán requires_grad lúc load weight ở hàm vit_base_patch16_224_adapter[cite: 3], 
-        # nên ở đây ta chỉ cần giữ nguyên trạng thái hoặc kiểm tra lại).
-        
+        # Chủ động mở khóa các tham số của adapter
+        for name, param in backbone.named_parameters():
+            if "adaptmlp" in name or "scale" in name:
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+                
         trainable_params = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
         logging.info(f"Adapter Strategy: Trainable params set by backbone loader: {trainable_params:,}")
         

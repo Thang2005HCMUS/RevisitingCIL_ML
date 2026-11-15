@@ -730,13 +730,21 @@ def _create_vision_transformer(variant, pretrained=False, **kwargs):
     if kwargs.get('features_only', None):
         raise RuntimeError('features_only not implemented for Vision Transformer models.')
 
-    pretrained_cfg = resolve_pretrained_cfg(variant, pretrained_cfg=kwargs.pop('pretrained_cfg', None))
-    model = build_model_with_cfg(
-        VisionTransformer, variant, pretrained,
-        pretrained_cfg=pretrained_cfg,
-        pretrained_filter_fn=checkpoint_filter_fn,
-        pretrained_custom_load='npz' in pretrained_cfg['url'],
-        **kwargs)
+    # Loại bỏ các tham số factory của timm nếu có
+    kwargs.pop('pretrained_cfg', None)
+    kwargs.pop('pretrained_cfg_overlay', None)
+    kwargs.pop('cache_dir', None)
+
+    # Khởi tạo đúng class VisionTransformer gốc của tác giả
+    model = VisionTransformer(**kwargs)
+
+    # Lấy trực tiếp trọng số từ model chuẩn của timm bản mới nạp vào
+    if pretrained:
+        import timm
+        base_model = timm.create_model(variant, pretrained=True, num_classes=0)
+        state_dict = checkpoint_filter_fn(base_model.state_dict(), model)
+        model.load_state_dict(state_dict, strict=False)
+
     return model
 
 

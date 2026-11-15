@@ -5,12 +5,13 @@ from .adapter import AdapterStrategy
 from .prompt import PromptStrategy  # Tương tự cho VPT
 from .bn import BNTuningStrategy
 from .finetune import FinetuneStrategy
-def get_tuning_strategy(convnet_type: str) -> TuningStrategy:
+def get_tuning_strategy(convnet_type: str, model_name: str = "") -> TuningStrategy:
     """
-    Hàm Factory để trả về TuningStrategy phù hợp dựa trên tên convnet.
+    Hàm Factory để trả về TuningStrategy phù hợp dựa trên tên convnet và model_name.
    [cite: 23]
     """
     convnet_type = convnet_type.lower()
+    model_name = model_name.lower()
     
     if "ssf" in convnet_type:
         return SSFStrategy()

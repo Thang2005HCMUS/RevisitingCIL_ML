@@ -221,6 +221,8 @@ def get_dataset(dataset_name: str) -> BaseData:
         return CIFAR100Data()
     elif name == "imagenetr":
         return ImageNetRData()
+    elif name == "imageneta":
+        return ImageNetAData()
     elif name == "cub":
         return CUBData()
     elif name == "cifar224":  # <--- Thêm dòng này ở đây
@@ -228,7 +230,7 @@ def get_dataset(dataset_name: str) -> BaseData:
     elif name == "omnibenchmark":
         return OMNIData()
     elif name == "vtab":
-        return VtabData();
+        return VtabData()
     # Bạn có thể bổ sung ObjectNet, OmniBenchmark, ImageNet-A tại đây nếu cần[cite: 8].
     else:
         raise NotImplementedError(f"Dataset '{dataset_name}' chưa được hỗ trợ.")

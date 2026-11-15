@@ -25,6 +25,16 @@ def setup_parser():
     # Trỏ mặc định về thư mục configs/ theo cấu trúc mới
     parser.add_argument('--config', type=str, default='./configs/simplecil_cifar100.json',
                         help='Json file of settings.')
+    parser.add_argument('--wandb', action='store_true',
+                        help='Enable Weights & Biases experiment tracking.')
+    parser.add_argument('--wandb_entity', type=str, default='nnm-hcmus',
+                        help='Weights & Biases entity (team or username).')
+    parser.add_argument('--wandb_project', type=str, default='Group7-ML-Lab',
+                        help='Weights & Biases project name.')
+    parser.add_argument('--wandb_group', type=str, default=None,
+                        help='Weights & Biases run group.')
+    parser.add_argument('--wandb_name', type=str, default=None,
+                        help='Weights & Biases run name.')
     return parser
 
 def main():
@@ -35,8 +45,16 @@ def main():
     param = load_json(args.config)
     
     # Chuyển đổi argparse.Namespace thành dictionary và cập nhật với các tham số từ JSON
-    args_dict = vars(args)
+    cli_args = vars(args)
+    args_dict = dict(cli_args)
     args_dict.update(param)
+    if cli_args.get('wandb'):
+        args_dict['wandb'] = True
+    if cli_args.get('wandb_group') is not None:
+        args_dict['wandb_group'] = cli_args['wandb_group']
+    if cli_args.get('wandb_name') is not None:
+        args_dict['wandb_name'] = cli_args['wandb_name']
+    args_dict['use_wandb'] = bool(args_dict.get('wandb') or args_dict.get('use_wandb'))
     
     # Truyền bộ args cuối cùng vào luồng huấn luyện chính
     train(args_dict)

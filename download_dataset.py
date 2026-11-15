@@ -2,6 +2,23 @@ import os
 import sys
 import re
 
+def is_html_error_file(path):
+    """Kiểm tra file tải về có phải trang HTML lỗi (vd: Google Drive quota exceeded) không."""
+    if not os.path.exists(path) or os.path.getsize(path) > 1024 * 1024:
+        return False
+    with open(path, "rb") as f:
+        prefix = f.read(512).lstrip().lower()
+    return prefix.startswith(b"<!doctype html") or prefix.startswith(b"<html")
+
+
+def remove_if_html(path, message):
+    if is_html_error_file(path):
+        print(message)
+        os.remove(path)
+        return True
+    return False
+
+
 def extract_gdrive_id(url):
     match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
     if match:
@@ -38,6 +55,8 @@ def download_datasets(list_file="dataset.txt", output_dir="./data"):
 
         print(f"\n[{i}/{len(lines)}] Đang xử lý: {raw_url}")
 
+        out_path = None
+
         # 1. Xử lý Google Drive qua endpoint direct
         if "drive.google.com" in raw_url:
             file_id = extract_gdrive_id(raw_url)
@@ -48,6 +67,7 @@ def download_datasets(list_file="dataset.txt", output_dir="./data"):
             target_url = f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=yes"
             filename = out_name if out_name else f"{file_id}.zip"
             out_path = os.path.join(output_dir, filename)
+            remove_if_html(out_path, f"[*] Xóa file HTML hỏng cũ trước khi tải lại: {out_path}")
 
             cmd = (
                 f'wget -c --no-check-certificate '
@@ -65,6 +85,7 @@ def download_datasets(list_file="dataset.txt", output_dir="./data"):
 
             filename = out_name if out_name else "dataset_sharepoint.zip"
             out_path = os.path.join(output_dir, filename)
+            remove_if_html(out_path, f"[*] Xóa file HTML hỏng cũ trước khi tải lại: {out_path}")
 
             if os.path.exists(cookie_file):
                 os.remove(cookie_file)
@@ -79,7 +100,8 @@ def download_datasets(list_file="dataset.txt", output_dir="./data"):
             exit_code = os.system(cmd)
 
             # Dự phòng sang curl nếu wget vẫn bị 429 rate-limit
-            if exit_code != 0:
+            if exit_code != 0 or is_html_error_file(out_path):
+                remove_if_html(out_path, "[*] File tải về từ wget bị HTML lỗi, thử lại bằng curl...")
                 print("[*] Thử lại bằng curl...")
                 curl_cmd = (
                     f'curl -L -k -C - -A "{user_agent}" '
@@ -95,10 +117,17 @@ def download_datasets(list_file="dataset.txt", output_dir="./data"):
         else:
             if out_name:
                 out_path = os.path.join(output_dir, out_name)
+                remove_if_html(out_path, f"[*] Xóa file HTML hỏng cũ trước khi tải lại: {out_path}")
                 cmd = f'wget -c --no-check-certificate --user-agent="{user_agent}" -O "{out_path}" "{raw_url}"'
             else:
                 cmd = f'wget -c --no-check-certificate --user-agent="{user_agent}" -P "{output_dir}" "{raw_url}"'
             os.system(cmd)
+
+        if out_path:
+            remove_if_html(
+                out_path,
+                f"[!] Lỗi: '{out_path}' tải về là trang HTML (có thể hết quota Google Drive hoặc link lỗi), đã xóa file hỏng."
+            )
 
 if __name__ == "__main__":
     file_path = sys.argv[1] if len(sys.argv) > 1 else "dataset.txt"

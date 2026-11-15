@@ -16,36 +16,164 @@ from models.backbones import get_pretrained_model
 from models.merged_encoder import DualBranchEncoder
 from models.classifiers import CosinePrototypeClassifier
 from framework.evaluator import evaluate
+from utils.metrics import count_parameters
+
+
+def _is_wandb_enabled(args: dict) -> bool:
+    """Return True when W&B tracking is enabled via CLI or config."""
+    return bool(args.get("use_wandb") or args.get("wandb"))
+
+
+def _resolve_method_name(args: dict) -> str:
+    """Resolve canonical Table 1 method name, distinguishing VPT shallow vs deep."""
+    model_name = str(args.get("model_name", "unknown"))
+    if model_name.lower() == "aper_vpt":
+        vpt_type = str(args.get("vpt_type", "shallow")).lower()
+        return f"aper_vpt-{vpt_type}"
+    return model_name
+
+
+def _init_wandb(args: dict, learner):
+    """Initialize a W&B run when tracking is enabled and return the run object."""
+    if not _is_wandb_enabled(args):
+        return None
+
+    try:
+        import wandb
+    except ImportError as exc:
+        raise ImportError(
+            "W&B tracking is enabled, but `wandb` is not installed. "
+            "Please install it with `pip install wandb`."
+        ) from exc
+
+    method_name = _resolve_method_name(args)
+    dataset = args.get("dataset", "unknown")
+    init_cls = args.get("init_cls", 0)
+    increment = args.get("increment", 10)
+    seed = args.get("seed", 1)
+
+    total_params = count_parameters(learner.adapted_ptm, trainable=False)
+    trainable_params = count_parameters(learner.adapted_ptm, trainable=True)
+
+    entity = args.get("wandb_entity") or "nnm-hcmus"
+    project = args.get("wandb_project") or "Group7-ML-Lab"
+    group = args.get("wandb_group") or f"{dataset}_init{init_cls}_inc{increment}"
+    name = args.get("wandb_name") or f"{method_name}_{dataset}_B{init_cls}_Inc{increment}_seed{seed}"
+
+    config = {}
+    for key, value in args.items():
+        if key == "device" and isinstance(value, (list, tuple)):
+            config[key] = [str(d) for d in value]
+        else:
+            config[key] = value
+    config["method_name"] = method_name
+    config["total_params"] = total_params
+    config["trainable_params"] = trainable_params
+
+    run = wandb.init(
+        entity=entity,
+        project=project,
+        group=group,
+        name=name,
+        config=config,
+    )
+
+    summary_target = getattr(wandb, "run", None) or run
+    if summary_target is not None and getattr(summary_target, "summary", None) is not None:
+        summary_target.summary["total_params"] = total_params
+        summary_target.summary["trainable_params"] = trainable_params
+
+    learner._wandb = wandb
+    learner.wandb_run = run
+    return run
 
 def train(args):
     seed_list = copy.deepcopy(args.get("seed", [1]))
     device = copy.deepcopy(args.get("device", ["0"]))
     for seed in seed_list:
-        args["seed"] = seed
-        args["device"] = device
-        _train(args)
+        run_args = copy.deepcopy(args)
+        run_args["seed"] = seed
+        run_args["device"] = copy.deepcopy(device)
+        _train(run_args)
+
 
 def _train(args):
     _set_random(args["seed"])
     _set_device(args)
     _setup_logging(args)
-    
-    logging.info("Khởi tạo Data Manager...")
-    data_manager = ContinualTaskManager(args)
-    
-    logging.info("Khởi tạo APER Learner...")
-    learner = APERLearner(args)
-    
-    for task_id in range(data_manager.nb_tasks):
-        logging.info(f"========== Bắt đầu Task {task_id} ==========")
-        nb_old = data_manager.known_classes
-        train_loader, test_loader, proto_loader = data_manager.get_task_loaders(task_id)
-        class_ids = data_manager.get_class_ids(task_id)
-    
-        learner.execute_task(task_id, train_loader, proto_loader, class_ids)
-        
-        eval_results = learner.evaluate(test_loader, nb_old )
-        logging.info(f"Kết quả Task {task_id}: {eval_results}")
+
+    wandb_run = None
+    learner = None
+    try:
+        logging.info("Khởi tạo Data Manager...")
+        data_manager = ContinualTaskManager(args)
+
+        logging.info("Khởi tạo APER Learner...")
+        learner = APERLearner(args)
+        wandb_run = _init_wandb(args, learner)
+
+        top1_curve, top5_curve = [], []
+        for task_id in range(data_manager.nb_tasks):
+            logging.info(f"========== Bắt đầu Task {task_id} ==========")
+            nb_old = data_manager.known_classes
+            train_loader, test_loader, proto_loader = data_manager.get_task_loaders(task_id)
+            class_ids = data_manager.get_class_ids(task_id)
+
+            learner.execute_task(task_id, train_loader, proto_loader, class_ids)
+
+            eval_results = learner.evaluate(test_loader, nb_old)
+            logging.info(f"Kết quả Task {task_id}: {eval_results}")
+
+            top1 = float(eval_results["top1"])
+            top5 = float(eval_results.get("top5", 0.0))
+            top1_curve.append(top1)
+            top5_curve.append(top5)
+            avg_acc_so_far = round(float(np.mean(top1_curve)), 2)
+
+            learner._log_wandb(
+                {
+                    "task/task_id": task_id,
+                    "task/seen_classes": data_manager.known_classes,
+                    "eval/top1": top1,
+                    "eval/top5": top5,
+                    "eval/old_acc": float(eval_results.get("old", 0.0)),
+                    "eval/new_acc": float(eval_results.get("new", 0.0)),
+                    "eval/avg_acc_so_far": avg_acc_so_far,
+                }
+            )
+
+        if top1_curve:
+            avg_acc = round(float(np.mean(top1_curve)), 2)
+            last_acc = round(float(top1_curve[-1]), 2)
+            top5_avg_acc = round(float(np.mean(top5_curve)), 2)
+            top5_last_acc = round(float(top5_curve[-1]), 2)
+
+            method_name = _resolve_method_name(args)
+            logging.info(f"Top-1 curve: {top1_curve}")
+            logging.info(f"Top-5 curve: {top5_curve}")
+            logging.info(
+                f"[{method_name} | {args.get('dataset', 'unknown')} | seed={args.get('seed', 1)}] "
+                f"Table 1 Summary => avg_acc: {avg_acc:.2f}, last_acc: {last_acc:.2f}"
+            )
+
+            wandb_mod = getattr(learner, "_wandb", None)
+            summary_target = (getattr(wandb_mod, "run", None) if wandb_mod is not None else None) or wandb_run
+            if summary_target is not None and getattr(summary_target, "summary", None) is not None:
+                summary_target.summary["avg_acc"] = avg_acc
+                summary_target.summary["last_acc"] = last_acc
+                summary_target.summary["table1/avg_acc"] = avg_acc
+                summary_target.summary["table1/last_acc"] = last_acc
+                summary_target.summary["top5_avg_acc"] = top5_avg_acc
+                summary_target.summary["top5_last_acc"] = top5_last_acc
+                summary_target.summary["top1_curve"] = top1_curve
+                summary_target.summary["top5_curve"] = top5_curve
+    finally:
+        if wandb_run is not None:
+            wandb_mod = getattr(learner, "_wandb", None) if learner is not None else None
+            if wandb_mod is not None and hasattr(wandb_mod, "finish"):
+                wandb_mod.finish()
+            elif hasattr(wandb_run, "finish"):
+                wandb_run.finish()
 
 
 class APERLearner:
@@ -57,7 +185,7 @@ class APERLearner:
         self.frozen_ptm = get_pretrained_model(args).to(self.device)
             
         # 2. Lấy chiến lược Tuning (Adapter, VPT, SSF, Finetune, hoặc SimpleCIL - Freeze)
-        self.strategy = get_tuning_strategy(args["convnet_type"])
+        self.strategy = get_tuning_strategy(args["convnet_type"], args.get("model_name", ""))
         
         # 3. Tạo mô hình thích ứng (Adapted Model) bằng cách Unfreeze chọn lọc
         self.adapted_ptm = self.strategy.prepare_adapted_model(copy.deepcopy(self.frozen_ptm)).to(self.device)
@@ -65,6 +193,8 @@ class APERLearner:
         # 4. Khởi tạo rỗng cho Encoder và Classifier
         self.encoder = None
         self.classifier = CosinePrototypeClassifier(in_features=self.frozen_ptm.out_dim * 2).to(self.device)
+        self._wandb = None
+        self.wandb_run = None
 
     def execute_task(self, task_id: int, train_loader: DataLoader, proto_loader: DataLoader, class_ids: list):
         if task_id == 0:
@@ -80,8 +210,23 @@ class APERLearner:
         # Giai đoạn 3: Tính toán Prototypes
         self._update_prototypes(proto_loader, class_ids)
         
+    def _log_wandb(self, metrics: dict):
+        """Log a metrics dictionary to W&B when an active session is attached."""
+        if self._wandb is not None and getattr(self._wandb, "run", None) is not None:
+            self._wandb.log(metrics)
+        elif self.wandb_run is not None and hasattr(self.wandb_run, "log"):
+            self.wandb_run.log(metrics)
+
     def evaluate(self, test_loader, known_classes):
-        return evaluate(self.encoder, self.classifier, test_loader, known_classes, self.device)
+        """Đánh giá mô hình trên tập test."""
+        return evaluate(
+            self.encoder,
+            self.classifier,
+            test_loader,
+            known_classes,
+            self.device,
+            increment=self.args.get("increment", 10),
+        )
 
     # ... Giữ nguyên các hàm _adapt_model, _update_prototypes, _set_device, v.v. đã viết ở lần trước ...
 
@@ -159,11 +304,22 @@ class APERLearner:
                 correct += preds.eq(targets).sum().item()
                 total += len(targets)
 
+            current_lr = optimizer.param_groups[0]["lr"]
             scheduler.step()
-            train_acc = (correct * 100.0) / total
-            
+            avg_loss = losses / len(train_loader) if len(train_loader) > 0 else 0.0
+            train_acc = (correct * 100.0) / total if total > 0 else 0.0
+
+            self._log_wandb(
+                {
+                    "adapt/epoch": epoch + 1,
+                    "adapt/loss": avg_loss,
+                    "adapt/train_acc": train_acc,
+                    "adapt/lr": current_lr,
+                }
+            )
+
             if (epoch + 1) % 5 == 0 or epoch == 0:
-                logging.info(f"Task 0, Epoch {epoch + 1}/{epochs} => Loss {losses/len(train_loader):.3f}, Train Acc {train_acc:.2f}%")
+                logging.info(f"Task 0, Epoch {epoch + 1}/{epochs} => Loss {avg_loss:.3f}, Train Acc {train_acc:.2f}%")
 
         logging.info("Hoàn tất quá trình Adaptation.")
 
@@ -212,17 +368,16 @@ class APERLearner:
         self.classifier.register_prototypes(new_prototypes)
         logging.info("Đã cập nhật Prototypes vào Classifier thành công.")
 
-    def evaluate(self, test_loader, known_classes):
-        """Đánh giá mô hình trên tập test."""
-        return evaluate(self.encoder, self.classifier, test_loader, known_classes, self.device)
-        pass
-
 # ================= Các hàm phụ trợ (Utility) =================
 def _set_device(args):
-    device_type = args["device"]
+    device_type = args.get("device", ["0"])
+    if not isinstance(device_type, (list, tuple)):
+        device_type = [device_type]
     gpus = []
     for device in device_type:
-        if device_type == -1:
+        if isinstance(device, torch.device):
+            gpus.append(device)
+        elif str(device) == "-1" or str(device).lower() == "cpu":
             gpus.append(torch.device("cpu"))
         else:
             gpus.append(torch.device(f"cuda:{device}"))
@@ -247,7 +402,7 @@ def _setup_logging(args):
         level=logging.INFO,
         format="%(asctime)s [%(filename)s] => %(message)s",
         handlers=[
-            logging.FileHandler(filename=logfilename),
+            logging.FileHandler(filename=logfilename, encoding="utf-8"),
             logging.StreamHandler(sys.stdout),
         ],
     )

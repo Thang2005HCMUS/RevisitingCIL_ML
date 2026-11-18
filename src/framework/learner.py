@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 import copy
@@ -11,9 +12,9 @@ from tqdm import tqdm
 
 # Đã bỏ comment các Import thực tế
 from data.task_manager import ContinualTaskManager
-from tuning import get_tuning_strategy
+from tuning import FreezeStrategy, get_tuning_strategy
 from models.backbones import get_pretrained_model
-from models.merged_encoder import DualBranchEncoder
+from models.merged_encoder import DualBranchEncoder, VALID_MERGE_MODES
 from models.classifiers import CosinePrototypeClassifier
 from framework.evaluator import evaluate
 from utils.metrics import count_parameters
@@ -24,13 +25,30 @@ def _is_wandb_enabled(args: dict) -> bool:
     return bool(args.get("use_wandb") or args.get("wandb"))
 
 
+_MERGE_MODE_METHOD_NAMES = {
+    "ptm_only": "simplecil_ptm",
+    "adapted_only": "simplecil_adapted",
+    "dual_ptm": "simplecil_21k+1k",
+}
+
+
 def _resolve_method_name(args: dict) -> str:
-    """Resolve canonical Table 1 method name, distinguishing VPT shallow vs deep."""
-    model_name = str(args.get("model_name", "unknown"))
-    if model_name.lower() == "aper_vpt":
-        vpt_type = str(args.get("vpt_type", "shallow")).lower()
-        return f"aper_vpt-{vpt_type}"
-    return model_name
+    """Resolve canonical Table 1 or Experiment 2 ablation method name."""
+    merge_mode = str(args.get("merge_mode") or "both").lower()
+    if merge_mode in _MERGE_MODE_METHOD_NAMES:
+        method_name = _MERGE_MODE_METHOD_NAMES[merge_mode]
+    else:
+        model_name = str(args.get("model_name", "unknown"))
+        if model_name.lower() == "aper_vpt":
+            vpt_type = str(args.get("vpt_type", "shallow")).lower()
+            method_name = f"aper_vpt-{vpt_type}"
+        else:
+            method_name = model_name
+
+    adapt_stages = args.get("adapt_stages")
+    if adapt_stages is not None:
+        method_name = f"{method_name}_adapt-{int(adapt_stages)}"
+    return method_name
 
 
 def _init_wandb(args: dict, learner):
@@ -180,33 +198,68 @@ class APERLearner:
     def __init__(self, args):
         self.args = args
         self.device = args["device"][0]
-        
+        self.merge_mode = str(args.get("merge_mode") or "both").lower()
+        if self.merge_mode not in VALID_MERGE_MODES:
+            raise ValueError(
+                f"Unsupported merge_mode '{self.merge_mode}'. Expected one of {VALID_MERGE_MODES}."
+            )
+
         # 1. Lấy mô hình tiền huấn luyện PTM
         self.frozen_ptm = get_pretrained_model(args).to(self.device)
-            
-        # 2. Lấy chiến lược Tuning (Adapter, VPT, SSF, Finetune, hoặc SimpleCIL - Freeze)
-        self.strategy = get_tuning_strategy(args["convnet_type"], args.get("model_name", ""))
-        
-        # 3. Tạo mô hình thích ứng (Adapted Model) bằng cách Unfreeze chọn lọc
-        self.adapted_ptm = self.strategy.prepare_adapted_model(copy.deepcopy(self.frozen_ptm)).to(self.device)
-        
-        # 4. Khởi tạo rỗng cho Encoder và Classifier
+
+        # 2. Lấy chiến lược Tuning và khởi tạo nhánh thứ hai theo merge_mode
+        if self.merge_mode == "dual_ptm":
+            second_args = copy.deepcopy(args)
+            second_args["convnet_type"] = args.get("second_convnet_type", "pretrained_vit_b16_224")
+            self.strategy = FreezeStrategy()
+            self.adapted_ptm = get_pretrained_model(second_args).to(self.device)
+        elif self.merge_mode == "ptm_only":
+            self.strategy = FreezeStrategy()
+            self.adapted_ptm = self.strategy.prepare_adapted_model(
+                copy.deepcopy(self.frozen_ptm)
+            ).to(self.device)
+        else:
+            self.strategy = get_tuning_strategy(args["convnet_type"], args.get("model_name", ""))
+            self.adapted_ptm = self.strategy.prepare_adapted_model(
+                copy.deepcopy(self.frozen_ptm)
+            ).to(self.device)
+
+        # 3. Khởi tạo rỗng cho Encoder và Classifier với số chiều khớp merge_mode
         self.encoder = None
-        self.classifier = CosinePrototypeClassifier(in_features=self.frozen_ptm.out_dim * 2).to(self.device)
+        if self.merge_mode == "ptm_only":
+            classifier_in_dim = self.frozen_ptm.out_dim
+        elif self.merge_mode == "adapted_only":
+            classifier_in_dim = self.adapted_ptm.out_dim
+        else:
+            classifier_in_dim = self.frozen_ptm.out_dim + self.adapted_ptm.out_dim
+        self.classifier = CosinePrototypeClassifier(in_features=classifier_in_dim).to(self.device)
         self._wandb = None
         self.wandb_run = None
 
     def execute_task(self, task_id: int, train_loader: DataLoader, proto_loader: DataLoader, class_ids: list):
-        if task_id == 0:
-            self._adapt_model(train_loader)
-            
-            # Giai đoạn 2: Đóng băng nhánh vừa huấn luyện và kết hợp 2 nhánh [phi*, phi]
+        adapt_stages_raw = self.args.get("adapt_stages", 1)
+        adapt_stages = 1 if adapt_stages_raw is None else int(adapt_stages_raw)
+        if adapt_stages < 0:
+            raise ValueError(f"adapt_stages must be >= 0, got {adapt_stages}")
+
+        nb_old = self.classifier.weight.shape[0]
+        if task_id < adapt_stages:
+            if task_id > 0:
+                self.adapted_ptm = self.strategy.prepare_adapted_model(self.adapted_ptm).to(self.device)
+            self._adapt_model(train_loader, nb_old=nb_old, nb_new=len(class_ids), task_id=task_id)
+
+            # Đóng băng nhánh vừa huấn luyện và kết hợp nhánh theo merge_mode
             self.adapted_ptm.eval()
             for param in self.adapted_ptm.parameters():
                 param.requires_grad = False
-                
-            self.encoder = DualBranchEncoder(self.frozen_ptm, self.adapted_ptm)
-        
+
+            self.encoder = DualBranchEncoder(self.frozen_ptm, self.adapted_ptm, merge_mode=self.merge_mode)
+        elif self.encoder is None:
+            self.adapted_ptm.eval()
+            for param in self.adapted_ptm.parameters():
+                param.requires_grad = False
+            self.encoder = DualBranchEncoder(self.frozen_ptm, self.adapted_ptm, merge_mode=self.merge_mode)
+
         # Giai đoạn 3: Tính toán Prototypes
         self._update_prototypes(proto_loader, class_ids)
         
@@ -230,10 +283,11 @@ class APERLearner:
 
     # ... Giữ nguyên các hàm _adapt_model, _update_prototypes, _set_device, v.v. đã viết ở lần trước ...
 
-    def _adapt_model(self, train_loader):
+    def _adapt_model(self, train_loader, nb_old: int = 0, nb_new: int = None, task_id: int = 0):
         """
         Huấn luyện tham số của adapted_ptm dựa trên chiến lược (Strategy) đã quy định.
-       [cite: 1, 2]
+        Khi `nb_old > 0` (chặng b >= 1), giữ đóng băng trọng số các lớp cũ W_old và
+        chỉ tối ưu tham số PET cùng trọng số lớp mới W_new.
         """
         if not self.strategy.requires_training:
             logging.info("Chiến lược hiện tại không yêu cầu huấn luyện (SimpleCIL). Bỏ qua bước Adapt.")
@@ -251,7 +305,7 @@ class APERLearner:
             logging.info("Hoàn tất cập nhật Batch Normalization (Không dùng Backprop).")
             return
         epochs = self.args.get("tuned_epoch", 20)
-        logging.info(f"Bắt đầu tinh chỉnh (Adaptation) trong {epochs} epochs...")
+        logging.info(f"Bắt đầu tinh chỉnh (Adaptation) Task {task_id} trong {epochs} epochs...")
         
         self.adapted_ptm.train()
         self.adapted_ptm.to(self.device)
@@ -270,14 +324,27 @@ class APERLearner:
         min_lr = self.args.get("min_lr", 1e-8)
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=min_lr)
 
-        # 3. Tạo một Classifier tuyến tính TẠM THỜI để tính Loss trong quá trình huấn luyện Task 1
-        temp_classifier = torch.nn.Linear(self.adapted_ptm.out_dim, self.args.get('init_cls', 50)).to(self.device)
-        temp_opt = optim.SGD(temp_classifier.parameters(), lr=lr)
+        # 3. Tạo Classifier tạm thời (chặng 0) hoặc ghép W_old (đóng băng) + W_new (huấn luyện) ở chặng b >= 1
+        if nb_new is None:
+            nb_new = self.args.get("init_cls", 50)
+        feat_dim = self.adapted_ptm.out_dim
+        if nb_old > 0:
+            w_old = self.classifier.weight[:nb_old, :feat_dim].detach().clone().to(self.device)
+            w_old.requires_grad_(False)
+            w_new = torch.nn.Parameter(torch.empty(nb_new, feat_dim, device=self.device))
+            torch.nn.init.kaiming_uniform_(w_new, a=math.sqrt(5))
+            temp_classifier = None
+            temp_opt = optim.SGD([w_new], lr=lr)
+        else:
+            w_old, w_new = None, None
+            temp_classifier = torch.nn.Linear(feat_dim, nb_new).to(self.device)
+            temp_opt = optim.SGD(temp_classifier.parameters(), lr=lr)
 
         # 4. Vòng lặp huấn luyện Cross Entropy
         for epoch in range(epochs):
             self.adapted_ptm.train()
-            temp_classifier.train()
+            if temp_classifier is not None:
+                temp_classifier.train()
             losses, correct, total = 0.0, 0, 0
 
             for _, inputs, targets in train_loader:
@@ -288,8 +355,15 @@ class APERLearner:
                 if isinstance(features, dict):
                     features = features['features']
 
-                # Tính Cross Entropy Loss[cite: 2]
-                logits = temp_classifier(features)
+                # Tính Cross Entropy Loss
+                if nb_old > 0:
+                    combined_weight = torch.cat([w_old, w_new], dim=0)
+                    logits = 16.0 * F.linear(
+                        F.normalize(features, p=2, dim=1),
+                        F.normalize(combined_weight, p=2, dim=1),
+                    )
+                else:
+                    logits = temp_classifier(features)
                 loss = F.cross_entropy(logits, targets)
 
                 # Cập nhật Gradient
@@ -319,7 +393,7 @@ class APERLearner:
             )
 
             if (epoch + 1) % 5 == 0 or epoch == 0:
-                logging.info(f"Task 0, Epoch {epoch + 1}/{epochs} => Loss {avg_loss:.3f}, Train Acc {train_acc:.2f}%")
+                logging.info(f"Task {task_id}, Epoch {epoch + 1}/{epochs} => Loss {avg_loss:.3f}, Train Acc {train_acc:.2f}%")
 
         logging.info("Hoàn tất quá trình Adaptation.")
 
@@ -392,7 +466,8 @@ def _set_random(seed):
 
 def _setup_logging(args):
     init_cls = 0 if args.get("init_cls") == args.get("increment") else args.get("init_cls", 0)
-    log_dir = f"logs/{args.get('model_name', 'aper')}/{args.get('dataset', 'unknown')}/{init_cls}/{args.get('increment', 0)}"
+    method_name = _resolve_method_name(args)
+    log_dir = f"logs/{method_name}/{args.get('dataset', 'unknown')}/{init_cls}/{args.get('increment', 0)}"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
         

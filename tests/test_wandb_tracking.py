@@ -1,5 +1,7 @@
+import logging
 import os
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import MagicMock, patch
@@ -8,9 +10,11 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from framework.learner import APERLearner, _init_wandb, _resolve_method_name, _train
+import main as cli_main
+from framework.learner import APERLearner, _init_wandb, _resolve_method_name, _setup_logging, _train
 
 
 class TestWandbTrackingTask21(unittest.TestCase):
@@ -31,6 +35,66 @@ class TestWandbTrackingTask21(unittest.TestCase):
             _resolve_method_name({"model_name": "simplecil"}),
             "simplecil",
         )
+
+    def test_resolve_method_name_exp2_variants(self):
+        self.assertEqual(
+            _resolve_method_name({"model_name": "simplecil", "merge_mode": "ptm_only"}),
+            "simplecil_ptm",
+        )
+        self.assertEqual(
+            _resolve_method_name({"model_name": "aper_finetune", "merge_mode": "adapted_only"}),
+            "simplecil_adapted",
+        )
+        self.assertEqual(
+            _resolve_method_name({"model_name": "simplecil", "merge_mode": "dual_ptm"}),
+            "simplecil_21k+1k",
+        )
+        self.assertEqual(
+            _resolve_method_name({"model_name": "aper_finetune", "merge_mode": "both"}),
+            "aper_finetune",
+        )
+        self.assertEqual(
+            _resolve_method_name({"model_name": "aper_adapter", "adapt_stages": 0}),
+            "aper_adapter_adapt-0",
+        )
+        self.assertEqual(
+            _resolve_method_name({"model_name": "aper_adapter", "adapt_stages": 3}),
+            "aper_adapter_adapt-3",
+        )
+
+    def test_init_wandb_exp2_run_naming_and_config(self):
+        dummy_learner = types.SimpleNamespace(adapted_ptm=nn.Linear(4, 2), _wandb=None, wandb_run=None)
+        mock_run = MagicMock()
+        mock_run.summary = {}
+        mock_wandb = types.ModuleType("wandb")
+        mock_wandb.run = mock_run
+        mock_wandb.init = MagicMock(return_value=mock_run)
+
+        orig_wandb = sys.modules.get("wandb")
+        sys.modules["wandb"] = mock_wandb
+        try:
+            args = {
+                "use_wandb": True,
+                "model_name": "aper_adapter",
+                "adapt_stages": 0,
+                "dataset": "cifar224",
+                "init_cls": 10,
+                "increment": 10,
+                "seed": 1993,
+                "device": [torch.device("cpu")],
+            }
+            _init_wandb(args, dummy_learner)
+        finally:
+            if orig_wandb is not None:
+                sys.modules["wandb"] = orig_wandb
+            else:
+                sys.modules.pop("wandb", None)
+
+        kwargs = mock_wandb.init.call_args.kwargs
+        self.assertEqual(kwargs["group"], "cifar224_init10_inc10")
+        self.assertEqual(kwargs["name"], "aper_adapter_adapt-0_cifar224_B10_Inc10_seed1993")
+        self.assertEqual(kwargs["config"]["method_name"], "aper_adapter_adapt-0")
+        self.assertEqual(kwargs["config"]["adapt_stages"], 0)
 
     def test_init_wandb_disabled_returns_none(self):
         dummy_learner = types.SimpleNamespace(adapted_ptm=nn.Linear(4, 2))
@@ -319,6 +383,120 @@ class TestWandbTrackingTask23(unittest.TestCase):
              patch("framework.learner.APERLearner", self._build_fake_learner_cls(eval_sequence)), \
              patch("framework.learner._setup_logging"):
             _train(args)
+
+
+class TestMainCliOverrides(unittest.TestCase):
+    def test_main_cli_overrides_preserve_zero_adapt_stages_and_merge_mode(self):
+        json_param = {
+            "model_name": "aper_adapter",
+            "dataset": "cifar224",
+            "adapt_stages": 1,
+            "merge_mode": "both",
+        }
+        argv = [
+            "main.py",
+            "--config",
+            "dummy.json",
+            "--adapt_stages",
+            "0",
+            "--merge_mode",
+            "ptm_only",
+            "--wandb",
+        ]
+        with patch.object(sys, "argv", argv), \
+             patch.object(cli_main, "load_json", return_value=json_param), \
+             patch.object(cli_main, "train") as mock_train:
+            cli_main.main()
+
+        mock_train.assert_called_once()
+        passed = mock_train.call_args.args[0]
+        self.assertEqual(passed["adapt_stages"], 0)
+        self.assertEqual(passed["merge_mode"], "ptm_only")
+        self.assertTrue(passed["use_wandb"])
+
+    def test_main_without_exp2_flags_does_not_inject_none(self):
+        json_param = {
+            "model_name": "simplecil",
+            "dataset": "cifar224",
+        }
+        argv = ["main.py", "--config", "dummy.json"]
+        with patch.object(sys, "argv", argv), \
+             patch.object(cli_main, "load_json", return_value=json_param), \
+             patch.object(cli_main, "train") as mock_train:
+            cli_main.main()
+
+        passed = mock_train.call_args.args[0]
+        self.assertNotIn("adapt_stages", passed)
+        self.assertNotIn("merge_mode", passed)
+
+
+class TestSetupLoggingIsolation(unittest.TestCase):
+    def _capture_log_path(self, args: dict) -> str:
+        root_logger = logging.getLogger()
+        orig_handlers = list(root_logger.handlers)
+        orig_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            try:
+                os.chdir(tmpdir)
+                root_logger.handlers.clear()
+                _setup_logging(args)
+                file_handlers = [h for h in root_logger.handlers if isinstance(h, logging.FileHandler)]
+                self.assertEqual(len(file_handlers), 1)
+                return os.path.relpath(file_handlers[0].baseFilename, tmpdir).replace("\\", "/")
+            finally:
+                for h in list(root_logger.handlers):
+                    if h not in orig_handlers:
+                        h.close()
+                root_logger.handlers[:] = orig_handlers
+                os.chdir(orig_cwd)
+
+    def test_exp2b_adapt_stages_write_to_separate_log_files(self):
+        base = {
+            "model_name": "aper_adapter",
+            "dataset": "cifar224",
+            "init_cls": 10,
+            "increment": 10,
+            "prefix": "exp",
+            "seed": 1993,
+            "convnet_type": "pretrained_vit_b16_224_in21k_adapter",
+        }
+        path_0 = self._capture_log_path({**base, "adapt_stages": 0})
+        path_1 = self._capture_log_path({**base, "adapt_stages": 1})
+        self.assertNotEqual(path_0, path_1)
+        self.assertTrue(path_0.startswith("logs/aper_adapter_adapt-0/"))
+        self.assertTrue(path_1.startswith("logs/aper_adapter_adapt-1/"))
+
+    def test_exp2a_simplecil_ptm_and_21k_1k_write_to_separate_log_files(self):
+        base = {
+            "model_name": "simplecil",
+            "dataset": "imageneta",
+            "init_cls": 100,
+            "increment": 5,
+            "prefix": "exp",
+            "seed": 1993,
+            "convnet_type": "pretrained_vit_b16_224_in21k",
+        }
+        path_ptm = self._capture_log_path({**base, "merge_mode": "ptm_only"})
+        path_dual = self._capture_log_path({**base, "merge_mode": "dual_ptm"})
+        self.assertNotEqual(path_ptm, path_dual)
+        self.assertTrue(path_ptm.startswith("logs/simplecil_ptm/"))
+        self.assertTrue(path_dual.startswith("logs/simplecil_21k+1k/"))
+
+    def test_exp2a_simplecil_adapted_and_aper_finetune_write_to_separate_log_files(self):
+        base = {
+            "model_name": "aper_finetune",
+            "dataset": "imageneta",
+            "init_cls": 100,
+            "increment": 5,
+            "prefix": "exp",
+            "seed": 1993,
+            "convnet_type": "pretrained_vit_b16_224_in21k",
+        }
+        path_adapted = self._capture_log_path({**base, "merge_mode": "adapted_only"})
+        path_both = self._capture_log_path({**base, "merge_mode": "both"})
+        self.assertNotEqual(path_adapted, path_both)
+        self.assertTrue(path_adapted.startswith("logs/simplecil_adapted/"))
+        self.assertTrue(path_both.startswith("logs/aper_finetune/"))
 
 
 if __name__ == "__main__":

@@ -35,6 +35,11 @@ def setup_parser():
                         help='Weights & Biases run group.')
     parser.add_argument('--wandb_name', type=str, default=None,
                         help='Weights & Biases run name.')
+    parser.add_argument('--merge_mode', type=str, default=None,
+                        choices=['both', 'adapted_only', 'ptm_only', 'dual_ptm'],
+                        help='Feature merge mode for DualBranchEncoder.')
+    parser.add_argument('--adapt_stages', type=int, default=None,
+                        help='Number of initial stages to adapt (0 skips adaptation).')
     return parser
 
 def main():
@@ -46,7 +51,10 @@ def main():
     
     # Chuyển đổi argparse.Namespace thành dictionary và cập nhật với các tham số từ JSON
     cli_args = vars(args)
-    args_dict = dict(cli_args)
+    args_dict = {
+        k: v for k, v in cli_args.items()
+        if k not in ('merge_mode', 'adapt_stages') or v is not None
+    }
     args_dict.update(param)
     if cli_args.get('wandb'):
         args_dict['wandb'] = True
@@ -54,6 +62,10 @@ def main():
         args_dict['wandb_group'] = cli_args['wandb_group']
     if cli_args.get('wandb_name') is not None:
         args_dict['wandb_name'] = cli_args['wandb_name']
+    if cli_args.get('merge_mode') is not None:
+        args_dict['merge_mode'] = cli_args['merge_mode']
+    if cli_args.get('adapt_stages') is not None:
+        args_dict['adapt_stages'] = cli_args['adapt_stages']
     args_dict['use_wandb'] = bool(args_dict.get('wandb') or args_dict.get('use_wandb'))
     
     # Truyền bộ args cuối cùng vào luồng huấn luyện chính

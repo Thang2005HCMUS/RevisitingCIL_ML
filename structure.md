@@ -1,137 +1,107 @@
-
-
 ### 1. Cấu trúc thư mục dự án (Project Layout)
 
 ```text
-revisiting_cil/
+RevisitingCIL_ML/
 │
-├── configs/                          # Quản lý cấu hình thử nghiệm (YAML/JSON)
-│   ├── simplecil_cifar100.yaml
-│   └── aper_adapter_imagenetr.yaml
+├── main.py                           # Entry point: setup_parser(), load_json(), main() -> train()
+├── download_model.py                 # Tải các pretrained backbones từ model.txt vào pretrained_models/
+├── download_dataset.py               # Tải dataset từ dataset.txt (hỗ trợ GDrive/SharePoint, kiểm tra HTML lỗi)
+├── extract_zip.py                    # Giải nén các file .zip theo cấu hình extract_zip.txt
+├── dataset.txt / full_dataset.txt    # Danh sách URL tải datasets (CUB, IN-R, IN-A, OmniBenchmark, VTAB, ObjectNet)
+├── extract_zip.txt / model.txt       # Danh sách file nén và URL pretrained weights
+├── SimpleCIL.ipynb                   # Notebook chạy thực nghiệm trên Google Colab
+├── README.md                         # Hướng dẫn cài đặt, W&B API key và chạy lệnh trên Colab
+├── requirements.txt / setup.py
+│
+├── exps/                             # Cấu hình JSON chuẩn cho các thí nghiệm Table 1 & ResNet
+│   ├── simplecil/                    # Baseline đóng băng hoàn toàn (7 datasets)
+│   ├── aper_finetune/                # APER w/ Finetune (7 datasets)
+│   ├── aper_vpt-shallow/             # APER w/ VPT-Shallow (7 datasets)
+│   ├── aper_vpt-deep/                # APER w/ VPT-Deep (7 datasets)
+│   ├── aper_ssf/                     # APER w/ SSF (7 datasets + nhánh resnet/)
+│   ├── aper_adapter/                 # APER w/ Adapter (7 datasets)
+│   └── aper_bn/                      # APER w/ BN Tuning cho ResNet18 (cifar224, omni)
+│
+├── configs/                          # Cấu hình YAML mẫu (simplecil_cifar100.yaml, aper_adapter_imagenetr.yaml)
+├── experiments/                      # Thư mục lưu kết quả thực nghiệm
 │
 ├── src/                              # Mã nguồn chính
 │   ├── data/                         # Quản lý dữ liệu & phân chia CIL tasks
-│   │   ├── __init__.py
-│   │   ├── datasets.py               # Dataset wrapper (CIFAR, ImageNet-R, CUB...)[cite: 8, 20]
-│   │   └── task_manager.py           # Chia luồng dữ liệu theo từng Task/Session[cite: 4, 20]
+│   │   ├── datasets.py               # ContinualDataset, build_transform(), get_dataset() (CIFAR224, CUB, IN-R, IN-A, OMNI, VTAB)
+│   │   └── task_manager.py           # ContinualTaskManager: chia B tasks, get_task_loaders(), get_class_ids()
 │   │
-│   ├── models/                       # Trích xuất đặc trưng & Bộ phân loại
-│   │   ├── __init__.py
-│   │   ├── backbones.py              # Load mô hình tiền huấn luyện từ timm/torchvision[cite: 20]
-│   │   ├── classifiers.py            # Cosine classifier & Prototype manager[cite: 6, 7]
-│   │   └── merged_encoder.py         # Module hợp nhất [phi*(x), phi(x)][cite: 6, 7]
+│   ├── convs/                        # Định nghĩa kiến trúc backbone tích hợp PET (tương thích timm >= 1.0)
+│   │   ├── vision_transformer_adapter.py  # ViT + AdaptMLP (vit_base_patch16_224[_in21k]_adapter)
+│   │   ├── vision_transformer_ssf.py      # ViT + Scale & Shift (_create_vision_transformer)
+│   │   ├── vpt.py                         # ViT + Visual Prompt Tuning (build_promptmodel)
+│   │   ├── new_adapter.py / new_ssf.py    # Bản viết lại cấu trúc Adapter & SSF
+│   │   └── *.txt                          # Mã tham chiếu kiến trúc ResNet/linears gốc
 │   │
-│   ├── tuning/                       # Thiết kế theo Strategy Pattern cho PET
-│   │   ├── __init__.py
-│   │   ├── base.py                   # Giao diện TuningStrategy trừu tượng
-│   │   ├── adapter.py                # Kỹ thuật Adapter/AdaptFormer[cite: 4, 7]
-│   │   ├── prompt.py                 # Visual Prompt Tuning (VPT Shallow/Deep)[cite: 4, 7]
-│   │   ├── scale_shift.py            # Scale & Shift (SSF)[cite: 4, 7]
-│   │   └── linear_probe.py           # Freeze mode cho SimpleCIL[cite: 2, 5]
+│   ├── models/                       # Khởi tạo backbone, hợp nhất nhánh & bộ phân loại
+│   │   ├── backbones.py              # get_pretrained_model(), SSFHeadWrapper (ResNet SSF)
+│   │   ├── classifiers.py            # CosinePrototypeClassifier: register_prototypes(), forward()
+│   │   └── merged_encoder.py         # DualBranchEncoder: ghép đặc trưng [phi*(x), phi(x)]
 │   │
-│   ├── framework/                    # Luồng điều khiển huấn luyện & đánh giá
-│   │   ├── __init__.py
-│   │   ├── evaluator.py              # Đánh giá Accuracy theo từng chặng (Average/Last)[cite: 8, 9, 20]
-│   │   └── learner.py                # Incremental Learner điều phối APER / SimpleCIL[cite: 7, 20]
+│   ├── tuning/                       # Strategy Pattern cho các kỹ thuật tinh chỉnh (PET)
+│   │   ├── __init__.py               # Factory get_tuning_strategy(convnet_type, model_name)
+│   │   ├── base.py                   # TuningStrategy (ABC): requires_training, is_forward_only, prepare_adapted_model()
+│   │   ├── linear_probe.py           # FreezeStrategy (SimpleCIL)
+│   │   ├── finetune.py               # FinetuneStrategy (APER w/ Finetune)
+│   │   ├── bn.py                     # BNTuningStrategy (Forward-only cập nhật running stats)
+│   │   ├── prompt.py                 # PromptStrategy (APER w/ VPT Shallow/Deep)
+│   │   ├── scale_shift.py            # SSFStrategy (APER w/ SSF)
+│   │   └── adapter.py                # AdapterStrategy (APER w/ Adapter)
 │   │
-│   └── utils/                        # Công cụ hỗ trợ
-│       ├── __init__.py
-│       ├── logger.py                 # Ghi log tiến trình thực nghiệm[cite: 22]
-│       └── metrics.py                # Các hàm phụ trợ tính toán (Cosine distance, Acc)[cite: 6, 20]
+│   ├── framework/                    # Luồng điều phối huấn luyện, đánh giá & W&B tracking
+│   │   ├── learner.py                # train(), _train(), _init_wandb(), APERLearner
+│   │   └── evaluator.py              # evaluate(), _compute_metrics() (Top-1, Top-5, Old/New, Grouped)
+│   │
+│   └── utils/                        # Tiện ích phụ trợ
+│       ├── logger.py                 # setup_logger()
+│       └── metrics.py                # count_parameters(), tensor2numpy(), target2onehot()
 │
-├── experiments/                      # Scripts chạy thử nghiệm và lưu log kết quả
-├── tests/                            # Unit tests kiểm tra tính đúng đắn của code
-├── README.md
-├── requirements.txt
-└── main.py                           # Điểm khởi chạy chương trình (Entry point)[cite: 21]
-
+└── tests/                            # Unit tests
+    ├── test_models.py                # Kiểm tra kiến trúc/forward model
+    └── test_wandb_tracking.py        # Kiểm tra metric Table 1 & tích hợp W&B
 ```
 
 ---
 
-### 2. Bảng phân rã kiến trúc OOP (Design Pattern & Class Responsibilities)
+### 2. Các thành phần & hàm quan trọng (Key Modules & Functions)
 
-| Thành phần (Component) | Class chính | Pattern áp dụng | Nhiệm vụ & Trách nhiệm (Single Responsibility) | Tính linh hoạt / Mở rộng |
-|---|---|---|---|---|
-| **Data Orchestration** | `ContinualTaskManager` | *Iterator Pattern* | Đọc dataset, xáo trộn class order, chia dữ liệu thành $B$ task (base classes và incremental classes). | Đổi tập dữ liệu (CIFAR-100, CUB, ImageNet-R...) không ảnh hưởng logic model. |
-| **Adaptation Mechanism** | `TuningStrategy` (Interface)<br>• `AdapterStrategy`<br>• `PromptStrategy`<br>• `SSFStrategy`<br>• `FreezeStrategy` | *Strategy Pattern* | Chịu trách nhiệm cấy tham số học nhẹ (lightweight parameters) hoặc cấu hình cờ `requires_grad` lên PTM tại Stage 1. | Muốn thử nghiệm kỹ thuật PET mới (như LoRA, BitFit) chỉ cần viết thêm 1 class Strategy mới. |
-| **Feature Representation** | `DualBranchEncoder` | *Decorator / Composite* | Nhận vào mô hình PTM gốc $\phi(\cdot)$ và mô hình đã thích ứng $\phi^*(\cdot)$, nối đặc trưng thành $[\phi^*(x), \phi(x)]$. | Dễ dàng chèn thêm module giảm chiều (PCA layer/Random projection) theo bài báo. |
-| **Classifier Head** | `CosinePrototypeClassifier` | *State / Observer Pattern* | Lưu trữ trọng số nguyên mẫu $w_c = p_c$, tự động mở rộng ma trận phân loại khi xuất hiện lớp mới và tính Cosine Logits. | Tách biệt hoàn toàn việc tính prototype ra khỏi luồng huấn luyện backbone. |
-| **Core Workflow** | `APERLearner` | *Template Method Pattern* | Điều phối toàn bộ vòng đời CIL: Task 1 (Adapt -> Merge -> Prototypes), Task $2 \dots B$ (Chỉ trích xuất Prototypes). | Tái sử dụng một bộ khung duy nhất cho cả SimpleCIL lẫn mọi biến thể APER. |
-
-### 3. Thiết kế chi tiết giao diện lớp (Class Interfaces Blueprint)
-
-* **`TuningStrategy` (Trừu tượng hóa cách tinh chỉnh):**
-```python
-class TuningStrategy(ABC):
-    @abstractmethod
-    def prepare_adapted_model(self, backbone: nn.Module) -> nn.Module:
-        """Cấy module PET hoặc unfreeze các tham số cần tối ưu."""
-        pass
-
-```
-
-
-* **`CosinePrototypeClassifier` (Quản lý Prototype & Cosine Loss):**
-```python
-class CosinePrototypeClassifier(nn.Module):
-    def __init__(self, in_features: int, scale: float = 16.0): ...
-    def register_prototypes(self, new_prototypes: torch.Tensor):
-        """Nối thêm class center trung bình từ embedding của task mới.""" ...
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
-        """Tính normalized cosine similarity: (w / ||w||) * (f / ||f||).""" ...
-
-```
-
-
-* **`DualBranchEncoder` (Ghép đặc trưng linh hoạt):**
-```python
-class DualBranchEncoder(nn.Module):
-    def __init__(self, frozen_ptm: nn.Module, adapted_ptm: nn.Module): ...
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Nối đặc trưng: [phi*(x), phi(x)]
-        return torch.cat([self.adapted_ptm(x), self.frozen_ptm(x)], dim=-1)
-
-```
-
-
-* **`APERLearner` (Điều phối tổng thể):**
-```python
-class APERLearner:
-    def __init__(self, backbone: nn.Module, strategy: TuningStrategy, ...): ...
-    def execute_task(self, task_id: int, train_loader: DataLoader, class_ids: List[int]):
-        if task_id == 0:
-            # Giai đoạn Adapt và Merge chỉ chạy 1 lần ở Task 1
-            self._adapt_and_merge(train_loader, class_ids)
-        # Tính trung bình prototype cho các lớp của task hiện tại
-        self._update_prototypes(train_loader, class_ids)
-
-```
-
-
+| Thành phần | File & Symbol chính | Vai trò chính |
+|---|---|---|
+| **CLI & Entrypoint** | `main.py`: `setup_parser()`, `main()` | Đọc config JSON từ `--config`, nhận cờ `--wandb`, `--wandb_entity` (`nnm-hcmus`), `--wandb_project` (`Group7-ML-Lab`), rồi gọi `train(args)`. |
+| **Data & CIL Split** | `src/data/datasets.py`: `get_dataset()`<br>`src/data/task_manager.py`: `ContinualTaskManager` | Nạp dataset (`cifar224`, `cub`, `imagenetr`, `imageneta`, `omnibenchmark`, `vtab`), xáo trộn thứ tự lớp theo `seed` và tạo `train_loader`, `test_loader`, `proto_loader` cho từng task. |
+| **Backbone & Merge** | `src/models/backbones.py`: `get_pretrained_model()`<br>`src/models/merged_encoder.py`: `DualBranchEncoder`<br>`src/models/classifiers.py`: `CosinePrototypeClassifier` | Nạp PTM gốc (`ViT` hoặc `ResNet`) và đóng băng mặc định; nối đặc trưng 2 nhánh $[\phi^*(x), \phi(x)]$; tính Cosine Similarity với trọng số nguyên mẫu `register_prototypes()`. |
+| **Tuning Strategies** | `src/tuning/__init__.py`: `get_tuning_strategy()`<br>`FreezeStrategy`, `FinetuneStrategy`, `BNTuningStrategy`, `PromptStrategy`, `SSFStrategy`, `AdapterStrategy` | Chọn chiến lược theo `(convnet_type, model_name)` và bật `requires_grad` đúng nhóm tham số PET (hoặc reset BN stats với BN Tuning) trước khi thích ứng ở Task 0. |
+| **Learner & W&B** | `src/framework/learner.py`: `train()`, `_train()`, `_init_wandb()`, `_resolve_method_name()`, `APERLearner` | Điều phối vòng lặp $B$ task (`execute_task`, `_adapt_model`, `_update_prototypes`, `evaluate`), tính chỉ số Table 1 ($\bar{\mathcal{A}}$ `avg_acc`, $\mathcal{A}_B$ `last_acc`) và log lên W&B. |
+| **Evaluator** | `src/framework/evaluator.py`: `evaluate()`, `_compute_metrics()` | Tính `top1` ($\mathcal{A}_b$), `top5`, `old`, `new` và `grouped` accuracy trên các lớp đã học. |
+| **Download Guard** | `download_dataset.py`: `download_datasets()`, `is_html_error_file()` | Tải dữ liệu qua Google Drive/OneDrive và tự xóa file `.zip` giả nếu bị trả về trang HTML lỗi (hết quota). |
 
 ---
 
-### 4. Luồng dữ liệu và tương tác giữa các Class (Workflow Execution)
+### 3. Luồng thực thi tổng quát (Workflow)
 
 ```text
-[DataLoader (Task 1)] 
-         │
-         ▼
-[TuningStrategy] ─── (Gắn Adapter/SSF/Prompt) ───► [Adapted Model phi*]
-                                                            │
-  ┌────────────────── [Đóng băng cả 2 nhánh] ────────────────┘
-  │
-  ▼
-[DualBranchEncoder: [phi*(x), phi(x)]]
-         │
-         ├───► Trích xuất toàn bộ feature của Task b
-         │
-         ▼
-[Tính Prototype: p_c = Mean(Features_c)]
-         │
-         ▼
-[CosinePrototypeClassifier] ─── (Cập nhật vector weights w_c) ───► [Dự đoán Test Set]
-
+main.py (--config exps/...json [--wandb])
+   │
+   ▼
+train(args) -> _train(args)
+   ├─ ContinualTaskManager(args): chia C lớp thành B tasks (init_cls + n * (B-1))
+   ├─ APERLearner(args): tạo frozen_ptm (phi) + adapted_ptm (phi*) theo TuningStrategy
+   └─ _init_wandb(args, learner): khởi tạo W&B run (nnm-hcmus/Group7-ML-Lab) nếu bật --wandb
+   │
+   ▼
+Vòng lặp Task 0 .. B-1:
+   ├─ Task 0:
+   │    ├─ _adapt_model(train_loader): bỏ qua (SimpleCIL) / forward-only (BN) / train tuned_epoch (APER)
+   │    └─ Đóng băng adapted_ptm -> ghép DualBranchEncoder([phi*(x), phi(x)])
+   ├─ Mọi Task b (0 .. B-1):
+   │    ├─ _update_prototypes(proto_loader, class_ids): trích mean embedding -> CosinePrototypeClassifier
+   │    └─ evaluate(test_loader, known_classes, increment): tính A_b (Top-1, Top-5, Old, New) + log W&B
+   │
+   ▼
+Kết thúc B tasks:
+   └─ Tổng hợp & log chỉ số Table 1: avg_acc (mean A_1..A_B), last_acc (A_B) -> đóng wandb.finish()
 ```
-

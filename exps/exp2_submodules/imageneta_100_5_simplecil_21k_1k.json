@@ -1,0 +1,26 @@
+{
+    "prefix": "exp",
+    "dataset": "imageneta",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 100,
+    "increment": 5,
+    "model_name": "simplecil",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "second_convnet_type": "pretrained_vit_b16_224",
+    "merge_mode": "dual_ptm",
+    "weight_decay": 0.0005,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}

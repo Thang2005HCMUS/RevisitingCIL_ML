@@ -119,4 +119,5 @@ Sử dụng một file cấu hình duy nhất kết hợp cờ `--adapt_stages T
 - `--wandb_project <project>`: Đổi W&B project (mặc định: `Group7-ML-Lab`).
 - `--wandb_group <group>`: Đặt tên group tùy chỉnh (mặc định: `<dataset>_init<init_cls>_inc<increment>`).
 - `--wandb_name <name>`: Đặt tên run tùy chỉnh (mặc định: `<method_name>_<dataset>_B<init_cls>_Inc<increment>_seed<seed>`).
+- `--wandb_tags <tag1> [<tag2> ...]`: Gắn thêm tag lên W&B (hệ thống luôn tự động gắn sẵn `backbone:<backbone_type>` và lưu cột `backbone_type` trong W&B config thay cho `convnet_type`).
 - Chạy **không** truyền `--wandb`: Pipeline vẫn chạy đầy đủ và in chỉ số Table 1 (`avg_acc`, `last_acc`) ra console/file log mà không import hay gọi `wandb`.

@@ -35,6 +35,8 @@ def setup_parser():
                         help='Weights & Biases run group.')
     parser.add_argument('--wandb_name', type=str, default=None,
                         help='Weights & Biases run name.')
+    parser.add_argument('--wandb_tags', nargs='+', default=None,
+                        help='Additional Weights & Biases tags.')
     parser.add_argument('--merge_mode', type=str, default=None,
                         choices=['both', 'adapted_only', 'ptm_only', 'dual_ptm'],
                         help='Feature merge mode for DualBranchEncoder.')
@@ -53,7 +55,7 @@ def main():
     cli_args = vars(args)
     args_dict = {
         k: v for k, v in cli_args.items()
-        if k not in ('merge_mode', 'adapt_stages') or v is not None
+        if k not in ('merge_mode', 'adapt_stages', 'wandb_tags') or v is not None
     }
     args_dict.update(param)
     if cli_args.get('wandb'):
@@ -62,10 +64,14 @@ def main():
         args_dict['wandb_group'] = cli_args['wandb_group']
     if cli_args.get('wandb_name') is not None:
         args_dict['wandb_name'] = cli_args['wandb_name']
+    if cli_args.get('wandb_tags') is not None:
+        args_dict['wandb_tags'] = cli_args['wandb_tags']
     if cli_args.get('merge_mode') is not None:
         args_dict['merge_mode'] = cli_args['merge_mode']
     if cli_args.get('adapt_stages') is not None:
         args_dict['adapt_stages'] = cli_args['adapt_stages']
+    if 'convnet_type' not in args_dict and args_dict.get('backbone_type'):
+        args_dict['convnet_type'] = args_dict['backbone_type']
     args_dict['use_wandb'] = bool(args_dict.get('wandb') or args_dict.get('use_wandb'))
     
     # Truyền bộ args cuối cùng vào luồng huấn luyện chính

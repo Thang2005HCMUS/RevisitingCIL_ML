@@ -51,6 +51,27 @@ def _resolve_method_name(args: dict) -> str:
     return method_name
 
 
+def _resolve_wandb_tags(args: dict) -> list:
+    """Build W&B run tags including automatic `backbone:<backbone_type>`."""
+    tags = []
+    backbone_type = args.get("backbone_type") or args.get("convnet_type")
+    if backbone_type:
+        tags.append(f"backbone:{backbone_type}")
+
+    extra_tags = args.get("wandb_tags")
+    if isinstance(extra_tags, str):
+        candidates = [t.strip() for t in extra_tags.replace(",", " ").split() if t.strip()]
+    elif isinstance(extra_tags, (list, tuple, set)):
+        candidates = [str(t).strip() for t in extra_tags if str(t).strip()]
+    else:
+        candidates = []
+
+    for tag in candidates:
+        if tag not in tags:
+            tags.append(tag)
+    return tags
+
+
 def _init_wandb(args: dict, learner):
     """Initialize a W&B run when tracking is enabled and return the run object."""
     if not _is_wandb_enabled(args):
@@ -69,6 +90,8 @@ def _init_wandb(args: dict, learner):
     init_cls = args.get("init_cls", 0)
     increment = args.get("increment", 10)
     seed = args.get("seed", 1)
+    backbone_type = args.get("backbone_type") or args.get("convnet_type")
+    tags = _resolve_wandb_tags(args)
 
     total_params = count_parameters(learner.adapted_ptm, trainable=False)
     trainable_params = count_parameters(learner.adapted_ptm, trainable=True)
@@ -80,10 +103,14 @@ def _init_wandb(args: dict, learner):
 
     config = {}
     for key, value in args.items():
+        if key in ("convnet_type", "wandb_tags"):
+            continue
         if key == "device" and isinstance(value, (list, tuple)):
             config[key] = [str(d) for d in value]
         else:
             config[key] = value
+    if backbone_type:
+        config["backbone_type"] = backbone_type
     config["method_name"] = method_name
     config["total_params"] = total_params
     config["trainable_params"] = trainable_params
@@ -93,6 +120,7 @@ def _init_wandb(args: dict, learner):
         project=project,
         group=group,
         name=name,
+        tags=tags,
         config=config,
     )
 

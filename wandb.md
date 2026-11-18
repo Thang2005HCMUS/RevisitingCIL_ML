@@ -133,6 +133,7 @@ Cấu trúc lệnh chung cho mọi cặp `(Phương pháp × Bộ dữ liệu)` 
 | `--wandb_project` | `Group7-ML-Lab` | Đổi tên project trên W&B. |
 | `--wandb_group` | `<dataset>_init<init_cls>_inc<increment>` | Gom nhóm các run cùng dataset split để so sánh ngang 6 phương pháp. |
 | `--wandb_name` | `<method_name>_<dataset>_B<init_cls>_Inc<increment>_seed<seed>` | Đặt tên hiển thị riêng cho run hiện tại. |
+| `--wandb_tags` | `["backbone:<backbone_type>"]` | Gắn thêm tags bổ sung trên W&B (tự động gắn sẵn tag `backbone:<backbone_type>` và log cột `backbone_type`). |
 
 Ví dụ log thử vào project cá nhân với tên run tùy chỉnh:
 

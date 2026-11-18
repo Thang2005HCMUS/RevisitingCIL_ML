@@ -14,7 +14,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 import main as cli_main
-from framework.learner import APERLearner, _init_wandb, _resolve_method_name, _setup_logging, _train
+from framework.learner import (
+    APERLearner,
+    _init_wandb,
+    _resolve_method_name,
+    _resolve_wandb_tags,
+    _setup_logging,
+    _train,
+)
 
 
 class TestWandbTrackingTask21(unittest.TestCase):
@@ -120,11 +127,13 @@ class TestWandbTrackingTask21(unittest.TestCase):
                 "use_wandb": True,
                 "model_name": "aper_vpt",
                 "vpt_type": "deep",
+                "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
                 "dataset": "cifar224",
                 "init_cls": 5,
                 "increment": 5,
                 "seed": 1993,
                 "device": [torch.device("cpu")],
+                "wandb_tags": ["table1", "backbone:pretrained_vit_b16_224_in21k_vpt"],
             }
             run = _init_wandb(args, dummy_learner)
         finally:
@@ -140,12 +149,34 @@ class TestWandbTrackingTask21(unittest.TestCase):
         self.assertEqual(kwargs["project"], "Group7-ML-Lab")
         self.assertEqual(kwargs["group"], "cifar224_init5_inc5")
         self.assertEqual(kwargs["name"], "aper_vpt-deep_cifar224_B5_Inc5_seed1993")
+        self.assertEqual(
+            kwargs["tags"],
+            ["backbone:pretrained_vit_b16_224_in21k_vpt", "table1"],
+        )
+        self.assertEqual(kwargs["config"]["backbone_type"], "pretrained_vit_b16_224_in21k_vpt")
+        self.assertNotIn("convnet_type", kwargs["config"])
+        self.assertNotIn("wandb_tags", kwargs["config"])
         self.assertEqual(kwargs["config"]["method_name"], "aper_vpt-deep")
         self.assertEqual(kwargs["config"]["total_params"], 23)
         self.assertEqual(kwargs["config"]["trainable_params"], 8)
         self.assertEqual(kwargs["config"]["device"], ["cpu"])
         self.assertEqual(mock_run.summary["total_params"], 23)
         self.assertEqual(mock_run.summary["trainable_params"], 8)
+
+    def test_resolve_wandb_tags_supports_auto_and_custom_tags(self):
+        self.assertEqual(
+            _resolve_wandb_tags({"convnet_type": "pretrained_vit_b16_224_in21k_adapter"}),
+            ["backbone:pretrained_vit_b16_224_in21k_adapter"],
+        )
+        self.assertEqual(
+            _resolve_wandb_tags(
+                {
+                    "backbone_type": "pretrained_resnet18",
+                    "wandb_tags": "exp1, table1 backbone:pretrained_resnet18",
+                }
+            ),
+            ["backbone:pretrained_resnet18", "exp1", "table1"],
+        )
 
 
 class TestWandbTrackingTask22(unittest.TestCase):
@@ -402,6 +433,9 @@ class TestMainCliOverrides(unittest.TestCase):
             "--merge_mode",
             "ptm_only",
             "--wandb",
+            "--wandb_tags",
+            "exp2",
+            "ablation",
         ]
         with patch.object(sys, "argv", argv), \
              patch.object(cli_main, "load_json", return_value=json_param), \
@@ -412,6 +446,7 @@ class TestMainCliOverrides(unittest.TestCase):
         passed = mock_train.call_args.args[0]
         self.assertEqual(passed["adapt_stages"], 0)
         self.assertEqual(passed["merge_mode"], "ptm_only")
+        self.assertEqual(passed["wandb_tags"], ["exp2", "ablation"])
         self.assertTrue(passed["use_wandb"])
 
     def test_main_without_exp2_flags_does_not_inject_none(self):
@@ -428,6 +463,7 @@ class TestMainCliOverrides(unittest.TestCase):
         passed = mock_train.call_args.args[0]
         self.assertNotIn("adapt_stages", passed)
         self.assertNotIn("merge_mode", passed)
+        self.assertNotIn("wandb_tags", passed)
 
 
 class TestSetupLoggingIsolation(unittest.TestCase):

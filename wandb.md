@@ -168,7 +168,26 @@ Mở project trên W&B $\rightarrow$ tab **Runs (Table)** $\rightarrow$ chọn *
 
 ---
 
-## 7. Xử lý một số lỗi thường gặp
+### 6. Chạy Exp 2A & 2B (W&B)
+
+- **Exp 2A (SimpleCIL‑Adapted)**:
+  ```bash
+  !python main.py --config ./exps/exp2_submodules/imageneta_100_5_simplecil_adapted.json --wandb --tuned_epoch 2
+  ```
+- **Exp 2A (APER‑Finetune)**:
+  ```bash
+  !python main.py --config ./exps/exp2_submodules/imageneta_100_5_aper_finetune.json --wandb --tuned_epoch 2
+  ```
+- **Exp 2B (cifar224‑10‑adapt‑stages)** (nếu có):
+  ```bash
+  !python main.py --config ./exps/exp2_submodules/cifar224_10_10_vit-b_adapter.json --wandb --tuned_epoch 2
+  ```
+
+Lưu ý: Tham số `--tuned_epoch` giúp chạy nhanh để kiểm tra; bỏ qua để dùng giá trị mặc định (`20`). Các file JSON đã được cập nhật với `backbone_lr`, `warmup_epochs`, `grad_clip` để tối ưu quá trình fine‑tune.
+
+---
+
+# 7. Xử lý một số lỗi thường gặp
 
 - **`403 Forbidden` hoặc không tạo được run trên `nnm-hcmus/Group7-ML-Lab`:**
   Kiểm tra tài khoản W&B của bạn đã chấp nhận lời mời vào team `nnm-hcmus` chưa, hoặc kiểm tra xem bạn đã dán đúng API key của đúng tài khoản đó chưa. Trong lúc chờ cấp quyền, có thể truyền `--wandb_entity <username_cua_ban> --wandb_project <ten_project>` để log tạm về workspace cá nhân.

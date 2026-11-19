@@ -21,5 +21,8 @@
     ],
     "tuned_epoch": 20,
     "init_lr": 0.01,
+    "backbone_lr": 0.001,
+    "warmup_epochs": 1,
+    "grad_clip": 1.0,
     "batch_size": 48
 }

@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 # Đã bỏ comment các Import thực tế
 from data.task_manager import ContinualTaskManager
-from tuning import FreezeStrategy, get_tuning_strategy
+from tuning import FinetuneStrategy, FreezeStrategy, get_tuning_strategy
 from models.backbones import get_pretrained_model
 from models.merged_encoder import DualBranchEncoder, VALID_MERGE_MODES
 from models.classifiers import CosinePrototypeClassifier
@@ -23,6 +23,39 @@ from utils.metrics import count_parameters
 def _is_wandb_enabled(args: dict) -> bool:
     """Return True when W&B tracking is enabled via CLI or config."""
     return bool(args.get("use_wandb") or args.get("wandb"))
+
+
+def _build_adapt_scheduler(
+    optimizer: optim.Optimizer,
+    epochs: int,
+    min_lr: float,
+    warmup_epochs: int,
+    has_backbone_group: bool,
+):
+    """Build cosine annealing scheduler with optional linear warmup on the backbone group."""
+    if warmup_epochs <= 0:
+        return optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(epochs, 1), eta_min=min_lr)
+
+    lr_lambdas = []
+    for idx, group in enumerate(optimizer.param_groups):
+        base_lr = float(group["lr"])
+        min_ratio = 0.0 if base_lr <= 0 else min(min_lr / base_lr, 1.0)
+        if idx == 0 and has_backbone_group:
+            def _backbone_schedule(epoch: int, mr: float = min_ratio) -> float:
+                if epoch < warmup_epochs:
+                    return 0.1 + 0.9 * (epoch / warmup_epochs)
+                progress = min((epoch - warmup_epochs) / max(epochs - warmup_epochs, 1), 1.0)
+                return mr + (1.0 - mr) * 0.5 * (1.0 + math.cos(math.pi * progress))
+
+            lr_lambdas.append(_backbone_schedule)
+        else:
+            def _head_schedule(epoch: int, mr: float = min_ratio) -> float:
+                progress = min(epoch / max(epochs, 1), 1.0)
+                return mr + (1.0 - mr) * 0.5 * (1.0 + math.cos(math.pi * progress))
+
+            lr_lambdas.append(_head_schedule)
+
+    return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambdas)
 
 
 _MERGE_MODE_METHOD_NAMES = {
@@ -332,47 +365,67 @@ class APERLearner:
                     
             logging.info("Hoàn tất cập nhật Batch Normalization (Không dùng Backprop).")
             return
-        epochs = self.args.get("tuned_epoch", 20)
+        epochs = int(self.args.get("tuned_epoch", 20))
         logging.info(f"Bắt đầu tinh chỉnh (Adaptation) Task {task_id} trong {epochs} epochs...")
         
         self.adapted_ptm.train()
         self.adapted_ptm.to(self.device)
 
-        # 1. Cấu hình Optimizer chỉ cho các tham số được phép huấn luyện (requires_grad = True)
-        lr = self.args.get("init_lr", 0.01)
-        weight_decay = self.args.get("weight_decay", 0.0005)
-        trainable_params = [p for p in self.adapted_ptm.parameters() if p.requires_grad]
-
-        if self.args.get("optimizer", "sgd").lower() == "adam":
-            optimizer = optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
-        else:
-            optimizer = optim.SGD(trainable_params, momentum=0.9, lr=lr, weight_decay=weight_decay)
-
-        # 2. Cấu hình Scheduler
-        min_lr = self.args.get("min_lr", 1e-8)
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=min_lr)
-
-        # 3. Tạo Classifier tạm thời (chặng 0) hoặc ghép W_old (đóng băng) + W_new (huấn luyện) ở chặng b >= 1
+        # 1. Tạo Cosine Head thống nhất cho cả chặng 0 và chặng b >= 1 (giữ đóng băng W_old nếu nb_old > 0)
         if nb_new is None:
             nb_new = self.args.get("init_cls", 50)
         feat_dim = self.adapted_ptm.out_dim
+        w_old = None
         if nb_old > 0:
             w_old = self.classifier.weight[:nb_old, :feat_dim].detach().clone().to(self.device)
             w_old.requires_grad_(False)
-            w_new = torch.nn.Parameter(torch.empty(nb_new, feat_dim, device=self.device))
-            torch.nn.init.kaiming_uniform_(w_new, a=math.sqrt(5))
-            temp_classifier = None
-            temp_opt = optim.SGD([w_new], lr=lr)
-        else:
-            w_old, w_new = None, None
-            temp_classifier = torch.nn.Linear(feat_dim, nb_new).to(self.device)
-            temp_opt = optim.SGD(temp_classifier.parameters(), lr=lr)
+        w_new = torch.nn.Parameter(torch.empty(nb_new, feat_dim, device=self.device))
+        torch.nn.init.kaiming_uniform_(w_new, a=math.sqrt(5))
+        cosine_scale = float(self.args.get("cosine_scale", 16.0))
 
-        # 4. Vòng lặp huấn luyện Cross Entropy
+        # 2. Cấu hình Optimizer hợp nhất theo param groups (tách LR backbone cho full finetune)
+        head_lr = float(self.args.get("init_lr", 0.01))
+        backbone_lr_raw = self.args.get("backbone_lr")
+        backbone_lr = (
+            float(backbone_lr_raw)
+            if backbone_lr_raw is not None
+            else (min(head_lr, 1e-3) if isinstance(self.strategy, FinetuneStrategy) else head_lr)
+        )
+        weight_decay = float(self.args.get("weight_decay", 0.0005))
+        trainable_params = [p for p in self.adapted_ptm.parameters() if p.requires_grad]
+
+        param_groups = []
+        if trainable_params:
+            param_groups.append({"params": trainable_params, "lr": backbone_lr, "weight_decay": weight_decay})
+        param_groups.append({"params": [w_new], "lr": head_lr, "weight_decay": weight_decay})
+
+        if self.args.get("optimizer", "sgd").lower() == "adam":
+            optimizer = optim.AdamW(param_groups)
+        else:
+            optimizer = optim.SGD(param_groups, momentum=0.9)
+
+        # 3. Cấu hình Scheduler (có warmup tuyến tính cho backbone khi full finetune) & grad clip
+        min_lr = float(self.args.get("min_lr", 1e-8))
+        warmup_raw = self.args.get("warmup_epochs")
+        warmup_epochs = (
+            max(0, int(warmup_raw))
+            if warmup_raw is not None
+            else (1 if isinstance(self.strategy, FinetuneStrategy) and epochs > 1 else 0)
+        )
+        warmup_epochs = min(warmup_epochs, max(epochs - 1, 0))
+        scheduler = _build_adapt_scheduler(
+            optimizer,
+            epochs=epochs,
+            min_lr=min_lr,
+            warmup_epochs=warmup_epochs,
+            has_backbone_group=bool(trainable_params),
+        )
+        grad_clip_raw = self.args.get("grad_clip", 1.0)
+        grad_clip = None if grad_clip_raw is None else float(grad_clip_raw)
+
+        # 4. Vòng lặp huấn luyện Cross Entropy với Cosine Logits
         for epoch in range(epochs):
             self.adapted_ptm.train()
-            if temp_classifier is not None:
-                temp_classifier.train()
             losses, correct, total = 0.0, 0, 0
 
             for _, inputs, targets in train_loader:
@@ -383,23 +436,20 @@ class APERLearner:
                 if isinstance(features, dict):
                     features = features['features']
 
-                # Tính Cross Entropy Loss
-                if nb_old > 0:
-                    combined_weight = torch.cat([w_old, w_new], dim=0)
-                    logits = 16.0 * F.linear(
-                        F.normalize(features, p=2, dim=1),
-                        F.normalize(combined_weight, p=2, dim=1),
-                    )
-                else:
-                    logits = temp_classifier(features)
+                # Tính Cross Entropy Loss trên Cosine Similarity
+                combined_weight = torch.cat([w_old, w_new], dim=0) if w_old is not None else w_new
+                logits = cosine_scale * F.linear(
+                    F.normalize(features, p=2, dim=1),
+                    F.normalize(combined_weight, p=2, dim=1),
+                )
                 loss = F.cross_entropy(logits, targets)
 
                 # Cập nhật Gradient
                 optimizer.zero_grad()
-                temp_opt.zero_grad()
                 loss.backward()
+                if grad_clip is not None and grad_clip > 0 and trainable_params:
+                    torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=grad_clip)
                 optimizer.step()
-                temp_opt.step()
 
                 losses += loss.item()
                 _, preds = torch.max(logits, dim=1)

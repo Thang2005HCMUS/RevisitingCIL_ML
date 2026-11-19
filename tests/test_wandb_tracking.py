@@ -464,6 +464,22 @@ class TestMainCliOverrides(unittest.TestCase):
         self.assertNotIn("adapt_stages", passed)
         self.assertNotIn("merge_mode", passed)
         self.assertNotIn("wandb_tags", passed)
+        self.assertNotIn("tuned_epoch", passed)
+
+    def test_main_cli_overrides_tuned_epoch(self):
+        json_param = {
+            "model_name": "aper_finetune",
+            "dataset": "imageneta",
+            "tuned_epoch": 20,
+        }
+        argv = ["main.py", "--config", "dummy.json", "--tuned_epoch", "2"]
+        with patch.object(sys, "argv", argv), \
+             patch.object(cli_main, "load_json", return_value=json_param), \
+             patch.object(cli_main, "train") as mock_train:
+            cli_main.main()
+
+        passed = mock_train.call_args.args[0]
+        self.assertEqual(passed["tuned_epoch"], 2)
 
 
 class TestSetupLoggingIsolation(unittest.TestCase):

@@ -1,5 +1,6 @@
 import os
 import sys
+import types
 import unittest
 from unittest.mock import patch
 
@@ -215,6 +216,168 @@ class TestAPERLearnerAdaptStages(unittest.TestCase):
         self.assertTrue(torch.equal(learner.adapted_ptm.adaptmlp.weight, adapter_after_t1))
         self.assertTrue(torch.equal(learner.classifier.weight[:2], w_old_snapshot))
         self.assertEqual(learner.classifier.weight.shape, (6, 16))
+
+
+class _LinearBackbone(nn.Module):
+    def __init__(self, in_dim: int, out_dim: int, weight_scale: float = 1.0):
+        super().__init__()
+        self.proj = nn.Linear(in_dim, out_dim, bias=False)
+        with torch.no_grad():
+            self.proj.weight.zero_()
+            diag = min(in_dim, out_dim)
+            self.proj.weight[:diag, :diag] = torch.eye(diag) * weight_scale
+        self.out_dim = out_dim
+
+    def forward(self, x):
+        return self.proj(x)
+
+
+class TestAdaptModelFinetuneStability(unittest.TestCase):
+    def _build_finetune_learner(self, backbone: nn.Module, **overrides):
+        def fake_get_pretrained(args):
+            for p in backbone.parameters():
+                p.requires_grad = False
+            return backbone
+
+        args = {
+            "device": [torch.device("cpu")],
+            "convnet_type": "pretrained_vit_b16_224_in21k",
+            "model_name": "aper_finetune",
+            "merge_mode": "adapted_only",
+            "tuned_epoch": 3,
+            "init_lr": 0.01,
+            "weight_decay": 0.0005,
+            "optimizer": "sgd",
+            "min_lr": 0.0,
+            "init_cls": 4,
+            "increment": 2,
+        }
+        args.update(overrides)
+        with patch("framework.learner.get_pretrained_model", side_effect=fake_get_pretrained):
+            return APERLearner(args)
+
+    def _make_cone_dataset(self, num_classes: int = 10, samples_per_class: int = 16, dim: int = 64, seed: int = 0):
+        g = torch.Generator().manual_seed(seed)
+        shared = torch.nn.functional.normalize(torch.randn(1, dim, generator=g), dim=1) * 32.0
+        centers = shared + torch.nn.functional.normalize(torch.randn(num_classes, dim, generator=g), dim=1) * 14.0
+        xs = torch.cat([
+            centers[c].unsqueeze(0).repeat(samples_per_class, 1)
+            + torch.randn(samples_per_class, dim, generator=g) * 0.5
+            for c in range(num_classes)
+        ])
+        ys = torch.arange(num_classes).repeat_interleave(samples_per_class)
+        idx = torch.arange(len(ys))
+        return xs, ys, DataLoader(TensorDataset(idx, xs, ys), batch_size=16, shuffle=True)
+
+    def test_finetune_defaults_to_lower_backbone_lr_with_warmup_and_respects_override(self):
+        learner = self._build_finetune_learner(
+            _LinearBackbone(8, 8), init_lr=0.01, tuned_epoch=3, min_lr=0.0, init_cls=4
+        )
+        logged = []
+        learner._wandb = types.SimpleNamespace(run=object(), log=lambda payload: logged.append(payload))
+        xs = torch.randn(8, 8)
+        ys = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3])
+        loader = DataLoader(TensorDataset(torch.arange(8), xs, ys), batch_size=4)
+
+        learner._adapt_model(loader, nb_old=0, nb_new=4)
+        lrs = [p["adapt/lr"] for p in logged]
+        self.assertEqual(len(lrs), 3)
+        self.assertAlmostEqual(lrs[0], 1e-4, places=7)
+        self.assertAlmostEqual(lrs[1], 1e-3, places=7)
+        self.assertAlmostEqual(lrs[2], 5e-4, places=7)
+
+        learner_override = self._build_finetune_learner(
+            _LinearBackbone(8, 8),
+            init_lr=0.01,
+            backbone_lr=0.0005,
+            warmup_epochs=0,
+            tuned_epoch=2,
+            min_lr=0.0,
+            init_cls=4,
+        )
+        logged_override = []
+        learner_override._wandb = types.SimpleNamespace(
+            run=object(), log=lambda payload: logged_override.append(payload)
+        )
+        learner_override._adapt_model(loader, nb_old=0, nb_new=4)
+        self.assertAlmostEqual(logged_override[0]["adapt/lr"], 0.0005, places=7)
+
+    def test_stage0_cosine_head_converges_fast_on_vit_scale_features_with_frozen_backbone_lr(self):
+        torch.manual_seed(0)
+        learner = self._build_finetune_learner(
+            _LinearBackbone(64, 64),
+            init_lr=0.01,
+            backbone_lr=0.0,
+            warmup_epochs=0,
+            tuned_epoch=2,
+            weight_decay=0.0,
+            init_cls=10,
+        )
+        w_init = learner.adapted_ptm.proj.weight.detach().clone()
+        logged = []
+        learner._wandb = types.SimpleNamespace(run=object(), log=lambda payload: logged.append(payload))
+        _, _, loader = self._make_cone_dataset(num_classes=10, samples_per_class=16, dim=64, seed=7)
+
+        learner._adapt_model(loader, nb_old=0, nb_new=10)
+        self.assertTrue(torch.equal(learner.adapted_ptm.proj.weight, w_init))
+        self.assertGreaterEqual(logged[-1]["adapt/train_acc"], 85.0)
+
+    def test_adapt_model_clips_backbone_gradients(self):
+        xs = torch.randn(8, 8, generator=torch.Generator().manual_seed(11)) * 1e-4
+        ys = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3])
+        loader = DataLoader(TensorDataset(torch.arange(8), xs, ys), batch_size=8)
+
+        torch.manual_seed(0)
+        learner_clipped = self._build_finetune_learner(
+            _LinearBackbone(8, 8, weight_scale=0.05),
+            init_lr=0.1,
+            backbone_lr=0.1,
+            warmup_epochs=0,
+            tuned_epoch=1,
+            weight_decay=0.0,
+            grad_clip=0.5,
+            init_cls=4,
+        )
+        w_init_clipped = learner_clipped.adapted_ptm.proj.weight.detach().clone()
+        learner_clipped._adapt_model(loader, nb_old=0, nb_new=4)
+        delta_clipped = (learner_clipped.adapted_ptm.proj.weight - w_init_clipped).norm().item()
+
+        torch.manual_seed(0)
+        learner_unclipped = self._build_finetune_learner(
+            _LinearBackbone(8, 8, weight_scale=0.05),
+            init_lr=0.1,
+            backbone_lr=0.1,
+            warmup_epochs=0,
+            tuned_epoch=1,
+            weight_decay=0.0,
+            grad_clip=0.0,
+            init_cls=4,
+        )
+        w_init_unclipped = learner_unclipped.adapted_ptm.proj.weight.detach().clone()
+        learner_unclipped._adapt_model(loader, nb_old=0, nb_new=4)
+        delta_unclipped = (learner_unclipped.adapted_ptm.proj.weight - w_init_unclipped).norm().item()
+
+        self.assertLessEqual(delta_clipped, 0.1 * 0.5 + 1e-5)
+        self.assertGreater(delta_unclipped, 1.0)
+
+    def test_finetune_adapted_only_preserves_separable_prototype_accuracy(self):
+        torch.manual_seed(0)
+        learner = self._build_finetune_learner(
+            _LinearBackbone(32, 32),
+            merge_mode="adapted_only",
+            init_lr=0.01,
+            tuned_epoch=3,
+            init_cls=10,
+        )
+        w_init = learner.adapted_ptm.proj.weight.detach().clone()
+        xs, ys, loader = self._make_cone_dataset(num_classes=10, samples_per_class=16, dim=32, seed=19)
+
+        learner.execute_task(0, loader, loader, list(range(10)))
+        self.assertFalse(torch.equal(learner.adapted_ptm.proj.weight, w_init))
+        with torch.no_grad():
+            preds = learner.classifier(learner.encoder(xs)).argmax(dim=1)
+        acc = (preds == ys).float().mean().item() * 100.0
+        self.assertGreaterEqual(acc, 80.0)
 
 
 if __name__ == "__main__":

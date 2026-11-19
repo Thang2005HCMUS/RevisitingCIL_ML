@@ -1,3 +1,298 @@
+====src/convs/new_ssf.py
+from functools import partial
+import timm
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from timm.layers import DropPath, trunc_normal_, to_2tuple
+from timm.models import register_model
+
+
+def create_ssf_params(num_features: int):
+    """Khởi tạo cặp tham số Scale (gamma ~ N(1, 0.02)) và Shift (beta ~ N(0, 0.02))."""
+    gamma = nn.Parameter(torch.ones(num_features))
+    beta = nn.Parameter(torch.zeros(num_features))
+    nn.init.normal_(gamma, mean=1.0, std=0.02)
+    nn.init.normal_(beta, std=0.02)
+    return gamma, beta
+
+
+def apply_ssf(tensor: torch.Tensor, gamma: torch.Tensor, beta: torch.Tensor) -> torch.Tensor:
+    """Thực hiện phép biến đổi affine theo từng kênh: x * gamma + beta."""
+    if tensor.shape[-1] == gamma.shape[0]:
+        return tensor * gamma + beta
+    if tensor.shape[1] == gamma.shape[0]:
+        return tensor * gamma.view(1, -1, 1, 1) + beta.view(1, -1, 1, 1)
+    raise ValueError(f"Kích thước tensor {tensor.shape} không khớp với tham số SSF {gamma.shape}")
+
+
+class ImagePatchEmbedding(nn.Module):
+    """Chia ảnh 2D thành chuỗi các vector nhúng (Patch Tokens) có hỗ trợ SSF."""
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768,
+                 norm_layer=None, tuning_mode="ssf"):
+        super().__init__()
+        img_hw = to_2tuple(img_size)
+        patch_hw = to_2tuple(patch_size)
+        self.grid_size = (img_hw[0] // patch_hw[0], img_hw[1] // patch_hw[1])
+        self.num_patches = self.grid_size[0] * self.grid_size[1]
+        self.use_ssf = (tuning_mode == "ssf")
+
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_hw, stride=patch_hw)
+        self.norm = norm_layer(embed_dim) if norm_layer is not None else nn.Identity()
+
+        if self.use_ssf:
+            self.ssf_scale_1, self.ssf_shift_1 = create_ssf_params(embed_dim)
+            if norm_layer is not None:
+                self.ssf_scale_2, self.ssf_shift_2 = create_ssf_params(embed_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.proj(x).flatten(2).transpose(1, 2)
+        if self.use_ssf:
+            x = apply_ssf(x, self.ssf_scale_1, self.ssf_shift_1)
+            x = self.norm(x)
+            if hasattr(self, "ssf_scale_2"):
+                x = apply_ssf(x, self.ssf_scale_2, self.ssf_shift_2)
+        else:
+            x = self.norm(x)
+        return x
+
+
+class SSFSelfAttention(nn.Module):
+    """Khối Multi-Head Self-Attention chèn SSF sau phép chiếu QKV và Output Projection."""
+    def __init__(self, dim: int, num_heads: int = 8, qkv_bias: bool = False,
+                 attn_drop: float = 0.0, proj_drop: float = 0.0, tuning_mode: str = "ssf"):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        self.scale = self.head_dim ** -0.5
+        self.use_ssf = (tuning_mode == "ssf")
+
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+        if self.use_ssf:
+            self.ssf_scale_1, self.ssf_shift_1 = create_ssf_params(dim * 3)
+            self.ssf_scale_2, self.ssf_shift_2 = create_ssf_params(dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C = x.shape
+        qkv_out = self.qkv(x)
+        if self.use_ssf:
+            qkv_out = apply_ssf(qkv_out, self.ssf_scale_1, self.ssf_shift_1)
+
+        qkv = qkv_out.reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)
+
+        attn = F.softmax((q @ k.transpose(-2, -1)) * self.scale, dim=-1)
+        attn = self.attn_drop(attn)
+
+        out = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        out = self.proj(out)
+        if self.use_ssf:
+            out = apply_ssf(out, self.ssf_scale_2, self.ssf_shift_2)
+
+        return self.proj_drop(out)
+
+
+class SSFFeedForward(nn.Module):
+    """Mạng MLP 2 lớp chèn SSF sau từng lớp Linear."""
+    def __init__(self, in_features: int, hidden_features: int, act_layer=nn.GELU,
+                 drop: float = 0.0, tuning_mode: str = "ssf"):
+        super().__init__()
+        self.use_ssf = (tuning_mode == "ssf")
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.act = act_layer()
+        self.drop1 = nn.Dropout(drop)
+        self.fc2 = nn.Linear(hidden_features, in_features)
+        self.drop2 = nn.Dropout(drop)
+
+        if self.use_ssf:
+            self.ssf_scale_1, self.ssf_shift_1 = create_ssf_params(hidden_features)
+            self.ssf_scale_2, self.ssf_shift_2 = create_ssf_params(in_features)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.fc1(x)
+        if self.use_ssf:
+            x = apply_ssf(x, self.ssf_scale_1, self.ssf_shift_1)
+        x = self.drop1(self.act(x))
+
+        x = self.fc2(x)
+        if self.use_ssf:
+            x = apply_ssf(x, self.ssf_scale_2, self.ssf_shift_2)
+        return self.drop2(x)
+
+
+class SSFTransformerBlock(nn.Module):
+    """Một tầng Encoder Block hoàn chỉnh có chèn SSF ngay sau mỗi lớp LayerNorm."""
+    def __init__(self, dim: int, num_heads: int, mlp_ratio: float = 4.0, qkv_bias: bool = False,
+                 drop: float = 0.0, attn_drop: float = 0.0, drop_path: float = 0.0,
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, tuning_mode: str = "ssf"):
+        super().__init__()
+        self.use_ssf = (tuning_mode == "ssf")
+
+        self.norm1 = norm_layer(dim)
+        self.attn = SSFSelfAttention(
+            dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop,
+            proj_drop=drop, tuning_mode=tuning_mode
+        )
+        self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+
+        self.norm2 = norm_layer(dim)
+        self.mlp = SSFFeedForward(
+            in_features=dim, hidden_features=int(dim * mlp_ratio),
+            act_layer=act_layer, drop=drop, tuning_mode=tuning_mode
+        )
+        self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+
+        if self.use_ssf:
+            self.ssf_scale_1, self.ssf_shift_1 = create_ssf_params(dim)
+            self.ssf_scale_2, self.ssf_shift_2 = create_ssf_params(dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h1 = self.norm1(x)
+        if self.use_ssf:
+            h1 = apply_ssf(h1, self.ssf_scale_1, self.ssf_shift_1)
+        x = x + self.drop_path1(self.attn(h1))
+
+        h2 = self.norm2(x)
+        if self.use_ssf:
+            h2 = apply_ssf(h2, self.ssf_scale_2, self.ssf_shift_2)
+        x = x + self.drop_path2(self.mlp(h2))
+        return x
+
+
+class VisionTransformerSSF(nn.Module):
+    """Backbone Vision Transformer tích hợp Scale & Shift (SSF) trên toàn mạng."""
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=0,
+                 global_pool="token", embed_dim=768, depth=12, num_heads=12, mlp_ratio=4.0,
+                 qkv_bias=True, drop_rate=0.0, attn_drop_rate=0.0, drop_path_rate=0.0,
+                 norm_layer=None, act_layer=None, tuning_mode="ssf"):
+        super().__init__()
+        self.num_classes = num_classes
+        self.global_pool = global_pool
+        self.num_features = self.embed_dim = embed_dim
+        self.use_ssf = (tuning_mode == "ssf")
+
+        norm_fn = norm_layer or partial(nn.LayerNorm, eps=1e-6)
+        act_fn = act_layer or nn.GELU
+
+        self.patch_embed = ImagePatchEmbedding(
+            img_size=img_size, patch_size=patch_size, in_chans=in_chans,
+            embed_dim=embed_dim, tuning_mode=tuning_mode
+        )
+        num_patches = self.patch_embed.num_patches
+
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+        self.pos_drop = nn.Dropout(p=drop_rate)
+
+        if self.use_ssf:
+            self.ssf_scale_1, self.ssf_shift_1 = create_ssf_params(embed_dim)
+
+        drop_rates = [r.item() for r in torch.linspace(0, drop_path_rate, depth)]
+        self.blocks = nn.Sequential(*[
+            SSFTransformerBlock(
+                dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=drop_rates[i],
+                act_layer=act_fn, norm_layer=norm_fn, tuning_mode=tuning_mode
+            )
+            for i in range(depth)
+        ])
+
+        self.norm = norm_fn(embed_dim)
+        self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+
+        trunc_normal_(self.pos_embed, std=0.02)
+        nn.init.normal_(self.cls_token, std=1e-6)
+
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+        B = x.size(0)
+        tokens = self.patch_embed(x)
+        cls_tok = self.cls_token.expand(B, -1, -1)
+
+        tokens = torch.cat([cls_tok, tokens], dim=1)
+        tokens = self.pos_drop(tokens + self.pos_embed)
+        tokens = self.blocks(tokens)
+        tokens = self.norm(tokens)
+
+        if self.use_ssf:
+            tokens = apply_ssf(tokens, self.ssf_scale_1, self.ssf_shift_1)
+        return tokens
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        tokens = self.forward_features(x)
+        feat = tokens[:, 1:].mean(dim=1) if self.global_pool == "avg" else tokens[:, 0]
+        return self.head(feat)
+
+
+def _build_ssf_vit(timm_arch: str, pretrained: bool = False, **kwargs) -> VisionTransformerSSF:
+    """Khởi tạo VisionTransformerSSF và nạp trực tiếp trọng số từ timm bản mới."""
+    # Loại bỏ các tham số nội bộ của timm factory nếu có
+    kwargs.pop("pretrained_cfg", None)
+    kwargs.pop("pretrained_cfg_overlay", None)
+    kwargs.pop("cache_dir", None)
+
+    model = VisionTransformerSSF(
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        **kwargs,
+    )
+
+    if pretrained:
+        ref_model = timm.create_model(timm_arch, pretrained=True, num_classes=0)
+        state_dict = {k: v for k, v in ref_model.state_dict().items() if "pre_logits" not in k}
+        model.load_state_dict(state_dict, strict=False)
+
+    return model
+
+
+@register_model
+def vit_tiny_patch16_224_ssf(pretrained: bool = False, **kwargs):
+    return _build_ssf_vit("vit_tiny_patch16_224", pretrained=pretrained,
+                          patch_size=16, embed_dim=192, depth=12, num_heads=3, **kwargs)
+
+
+@register_model
+def vit_small_patch16_224_ssf(pretrained: bool = False, **kwargs):
+    return _build_ssf_vit("vit_small_patch16_224", pretrained=pretrained,
+                          patch_size=16, embed_dim=384, depth=12, num_heads=6, **kwargs)
+
+
+@register_model
+def vit_base_patch16_224_ssf(pretrained: bool = False, **kwargs):
+    return _build_ssf_vit("vit_base_patch16_224", pretrained=pretrained,
+                          patch_size=16, embed_dim=768, depth=12, num_heads=12, **kwargs)
+
+
+@register_model
+def vit_large_patch16_224_ssf(pretrained: bool = False, **kwargs):
+    return _build_ssf_vit("vit_large_patch16_224", pretrained=pretrained,
+                          patch_size=16, embed_dim=1024, depth=24, num_heads=16, **kwargs)
+
+
+@register_model
+def vit_tiny_patch16_224_in21k_ssf(pretrained: bool = False, **kwargs):
+    return _build_ssf_vit("vit_tiny_patch16_224_in21k", pretrained=pretrained,
+                          patch_size=16, embed_dim=192, depth=12, num_heads=3, **kwargs)
+
+
+@register_model
+def vit_small_patch16_224_in21k_ssf(pretrained: bool = False, **kwargs):
+    return _build_ssf_vit("vit_small_patch16_224_in21k", pretrained=pretrained,
+                          patch_size=16, embed_dim=384, depth=12, num_heads=6, **kwargs)
+
+
+@register_model
+def vit_base_patch16_224_in21k_ssf(pretrained: bool = False, **kwargs):
+    return _build_ssf_vit("vit_base_patch16_224_in21k", pretrained=pretrained,
+                          patch_size=16, embed_dim=768, depth=12, num_heads=12, **kwargs)
+
+
+@register_model
+def vit_large_patch16_224_in21k_ssf(pretrained: bool = False, **kwargs):
+    return _build_ssf_vit("vit_large_patch16_224_in21k", pretrained=pretrained,
+                          patch_size=16, embed_dim=1024, depth=24, num_heads=16, **kwargs)
 ====src/convs/vision_transformer_adapter.py
 # --------------------------------------------------------
 # References:
@@ -7,7 +302,7 @@
 import math
 import torch
 import torch.nn as nn
-from timm.models.layers import DropPath
+from timm.layers import DropPath, PatchEmbed
 # --------------------------------------------------------
 # References:
 # timm: https://github.com/rwightman/pytorch-image-models/tree/master/timm
@@ -19,8 +314,7 @@ from functools import partial
 from collections import OrderedDict
 import torch
 import torch.nn as nn
-from timm.models.vision_transformer import PatchEmbed
-from timm.models.registry import register_model
+from timm.models import register_model
 
 import logging
 import os
@@ -468,6 +762,237 @@ def vit_base_patch16_224_in21k_adapter(pretrained=False, **kwargs):
     return model
 
 
+====src/convs/new_adapter.py
+import math
+from functools import partial
+import timm
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from timm.layers import DropPath, PatchEmbed
+
+
+class BottleneckAdapter(nn.Module):
+    """Nhánh phụ dạng thắt cổ chai (Down -> ReLU -> Dropout -> Up) theo kiến trúc AdaptFormer."""
+    def __init__(self, embed_dim: int, bottleneck_dim: int, dropout: float = 0.1,
+                 scale_mode: str = "0.1", norm_mode: str = "none"):
+        super().__init__()
+        self.norm_mode = norm_mode
+        self.pre_norm = nn.LayerNorm(embed_dim) if norm_mode in ("in", "out") else nn.Identity()
+
+        if scale_mode == "learnable_scalar":
+            self.scale = nn.Parameter(torch.ones(1))
+        else:
+            self.scale = float(scale_mode)
+
+        self.down_proj = nn.Linear(embed_dim, bottleneck_dim)
+        self.act = nn.ReLU(inplace=True)
+        self.drop = nn.Dropout(dropout)
+        self.up_proj = nn.Linear(bottleneck_dim, embed_dim)
+
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        nn.init.kaiming_uniform_(self.down_proj.weight, a=math.sqrt(5))
+        nn.init.zeros_(self.down_proj.bias)
+        nn.init.zeros_(self.up_proj.weight)
+        nn.init.zeros_(self.up_proj.bias)
+
+    def forward(self, x: torch.Tensor, add_residual: bool = True, residual: torch.Tensor = None) -> torch.Tensor:
+        skip = x if residual is None else residual
+        h = self.pre_norm(x) if self.norm_mode == "in" else x
+
+        h = self.up_proj(self.drop(self.act(self.down_proj(h)))) * self.scale
+
+        if self.norm_mode == "out":
+            h = self.pre_norm(h)
+
+        return (h + skip) if add_residual else h
+
+
+class MultiHeadSelfAttention(nn.Module):
+    """Khối Self-Attention với 3 lớp chiếu Q, K, V độc lập."""
+    def __init__(self, embed_dim: int, num_heads: int = 12, qkv_bias: bool = True,
+                 attn_drop: float = 0.0, proj_drop: float = 0.0):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.scale = self.head_dim ** -0.5
+
+        self.q_proj = nn.Linear(embed_dim, embed_dim, bias=qkv_bias)
+        self.k_proj = nn.Linear(embed_dim, embed_dim, bias=qkv_bias)
+        self.v_proj = nn.Linear(embed_dim, embed_dim, bias=qkv_bias)
+
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(embed_dim, embed_dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C = x.shape
+
+        # Tách thành [B, num_heads, N, head_dim]
+        q = self.q_proj(x).view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
+        k = self.k_proj(x).view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
+        v = self.v_proj(x).view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
+
+        attn_scores = (q @ k.transpose(-2, -1)) * self.scale
+        attn_probs = self.attn_drop(F.softmax(attn_scores, dim=-1))
+
+        out = (attn_probs @ v).transpose(1, 2).contiguous().view(B, N, C)
+        return self.proj_drop(self.proj(out))
+
+
+class TransformerEncoderLayer(nn.Module):
+    """Một tầng Transformer Block tích hợp tùy chọn AdaptMLP (song song hoặc nối tiếp)."""
+    def __init__(self, embed_dim: int, num_heads: int, mlp_ratio: float = 4.0, qkv_bias: bool = True,
+                 drop: float = 0.0, attn_drop: float = 0.0, drop_path: float = 0.0,
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, tuning_cfg=None):
+        super().__init__()
+        self.tuning_cfg = tuning_cfg
+        self.norm1 = norm_layer(embed_dim)
+        self.attn = MultiHeadSelfAttention(
+            embed_dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop
+        )
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+
+        self.norm2 = norm_layer(embed_dim)
+        mlp_dim = int(embed_dim * mlp_ratio)
+        self.fc1 = nn.Linear(embed_dim, mlp_dim)
+        self.act = act_layer()
+        self.mlp_drop = nn.Dropout(drop)
+        self.fc2 = nn.Linear(mlp_dim, embed_dim)
+
+        if self.tuning_cfg is not None and self.tuning_cfg.ffn_adapt:
+            self.adaptmlp = BottleneckAdapter(
+                embed_dim=embed_dim,
+                bottleneck_dim=self.tuning_cfg.ffn_num,
+                dropout=0.1,
+                scale_mode=self.tuning_cfg.ffn_adapter_scalar,
+                norm_mode=self.tuning_cfg.ffn_adapter_layernorm_option,
+            )
+
+    def _forward_mlp(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.mlp_drop(self.act(self.fc1(x)))
+        return self.drop_path(self.mlp_drop(self.fc2(h)))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x + self.drop_path(self.attn(self.norm1(x)))
+
+        residual = x
+        normed_x = self.norm2(x)
+        mlp_out = self._forward_mlp(normed_x)
+
+        if self.tuning_cfg is not None and self.tuning_cfg.ffn_adapt:
+            mode = self.tuning_cfg.ffn_option
+            if mode == "parallel":
+                mlp_out = mlp_out + self.adaptmlp(x, add_residual=False)
+            elif mode == "sequential":
+                mlp_out = self.adaptmlp(mlp_out)
+            else:
+                raise ValueError(f"Chế độ ffn_option không hợp lệ: {mode}")
+
+        return residual + mlp_out
+
+
+class VisionTransformerAdapter(nn.Module):
+    """Kiến trúc Vision Transformer hỗ trợ cắm các mô-đun Adapter."""
+    def __init__(self, img_size: int = 224, patch_size: int = 16, in_chans: int = 3,
+                 num_classes: int = 0, embed_dim: int = 768, depth: int = 12, num_heads: int = 12,
+                 mlp_ratio: float = 4.0, qkv_bias: bool = True, drop_rate: float = 0.0,
+                 attn_drop_rate: float = 0.0, drop_path_rate: float = 0.0,
+                 norm_layer=None, act_layer=None, tuning_config=None):
+        super().__init__()
+        self.num_features = self.embed_dim = embed_dim
+        norm_fn = norm_layer or partial(nn.LayerNorm, eps=1e-6)
+        act_fn = act_layer or nn.GELU
+
+        self.patch_embed = PatchEmbed(
+            img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim
+        )
+        num_patches = self.patch_embed.num_patches
+
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+        self.pos_drop = nn.Dropout(p=drop_rate)
+
+        drop_rates = [r.item() for r in torch.linspace(0, drop_path_rate, depth)]
+        self.blocks = nn.ModuleList([
+            TransformerEncoderLayer(
+                embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=drop_rates[i],
+                act_layer=act_fn, norm_layer=norm_fn, tuning_cfg=tuning_config
+            )
+            for i in range(depth)
+        ])
+
+        self.norm = norm_fn(embed_dim)
+        self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+        B = x.size(0)
+        tokens = self.patch_embed(x)
+        cls_tok = self.cls_token.expand(B, -1, -1)
+
+        tokens = torch.cat([cls_tok, tokens], dim=1)
+        tokens = self.pos_drop(tokens + self.pos_embed)
+
+        for layer in self.blocks:
+            tokens = layer(tokens)
+
+        tokens = self.norm(tokens)
+        return tokens[:, 0]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(self.forward_features(x))
+
+
+def _convert_timm_state_dict(timm_state_dict: dict) -> dict:
+    """Chuyển đổi tên tham số từ checkpoint của timm sang cấu trúc Q/K/V tách rời."""
+    converted = {}
+    for k, v in timm_state_dict.items():
+        if "qkv.weight" in k:
+            q, k_w, v_w = torch.chunk(v, 3, dim=0)
+            converted[k.replace("qkv.weight", "q_proj.weight")] = q
+            converted[k.replace("qkv.weight", "k_proj.weight")] = k_w
+            converted[k.replace("qkv.weight", "v_proj.weight")] = v_w
+        elif "qkv.bias" in k:
+            q, k_b, v_b = torch.chunk(v, 3, dim=0)
+            converted[k.replace("qkv.bias", "q_proj.bias")] = q
+            converted[k.replace("qkv.bias", "k_proj.bias")] = k_b
+            converted[k.replace("qkv.bias", "v_proj.bias")] = v_b
+        elif "mlp.fc" in k:
+            converted[k.replace("mlp.", "")] = v
+        else:
+            converted[k] = v
+    return converted
+
+
+def _create_adapted_vit(model_name: str, **kwargs) -> VisionTransformerAdapter:
+    kwargs.pop("global_pool", None)
+
+    model = VisionTransformerAdapter(
+        patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4.0, qkv_bias=True,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs
+    )
+
+    ref_model = timm.create_model(model_name, pretrained=True, num_classes=0)
+    mapped_state = _convert_timm_state_dict(ref_model.state_dict())
+    incompatible = model.load_state_dict(mapped_state, strict=False)
+
+    # Đóng băng toàn bộ backbone gốc, chỉ cho phép huấn luyện các tham số mới (Adapter)
+    trainable_keys = set(incompatible.missing_keys)
+    for name, param in model.named_parameters():
+        param.requires_grad = name in trainable_keys
+
+    return model
+
+
+def vit_base_patch16_224_adapter(pretrained: bool = False, **kwargs) -> VisionTransformerAdapter:
+    return _create_adapted_vit("vit_base_patch16_224", **kwargs)
+
+
+def vit_base_patch16_224_in21k_adapter(pretrained: bool = False, **kwargs) -> VisionTransformerAdapter:
+    return _create_adapted_vit("vit_base_patch16_224_in21k", **kwargs)
 ====src/convs/__init__.py
 
 ====src/convs/vpt.py
@@ -1349,13 +1874,21 @@ def _create_vision_transformer(variant, pretrained=False, **kwargs):
     if kwargs.get('features_only', None):
         raise RuntimeError('features_only not implemented for Vision Transformer models.')
 
-    pretrained_cfg = resolve_pretrained_cfg(variant, pretrained_cfg=kwargs.pop('pretrained_cfg', None))
-    model = build_model_with_cfg(
-        VisionTransformer, variant, pretrained,
-        pretrained_cfg=pretrained_cfg,
-        pretrained_filter_fn=checkpoint_filter_fn,
-        pretrained_custom_load='npz' in pretrained_cfg['url'],
-        **kwargs)
+    # Loại bỏ các tham số factory của timm nếu có
+    kwargs.pop('pretrained_cfg', None)
+    kwargs.pop('pretrained_cfg_overlay', None)
+    kwargs.pop('cache_dir', None)
+
+    # Khởi tạo đúng class VisionTransformer gốc của tác giả
+    model = VisionTransformer(**kwargs)
+
+    # Lấy trực tiếp trọng số từ model chuẩn của timm bản mới nạp vào
+    if pretrained:
+        import timm
+        base_model = timm.create_model(variant, pretrained=True, num_classes=0)
+        state_dict = checkpoint_filter_fn(base_model.state_dict(), model)
+        model.load_state_dict(state_dict, strict=False)
+
     return model
 
 
@@ -1831,6 +2364,8 @@ def get_dataset(dataset_name: str) -> BaseData:
         return CIFAR100Data()
     elif name == "imagenetr":
         return ImageNetRData()
+    elif name == "imageneta":
+        return ImageNetAData()
     elif name == "cub":
         return CUBData()
     elif name == "cifar224":  # <--- Thêm dòng này ở đây
@@ -1838,7 +2373,7 @@ def get_dataset(dataset_name: str) -> BaseData:
     elif name == "omnibenchmark":
         return OMNIData()
     elif name == "vtab":
-        return VtabData();
+        return VtabData()
     # Bạn có thể bổ sung ObjectNet, OmniBenchmark, ImageNet-A tại đây nếu cần[cite: 8].
     else:
         raise NotImplementedError(f"Dataset '{dataset_name}' chưa được hỗ trợ.")
@@ -1909,13 +2444,13 @@ class AdapterStrategy(TuningStrategy):
         return True
 
     def prepare_adapted_model(self, backbone: nn.Module) -> nn.Module:
-        # Trong Adapter, PTM ban đầu thường đã được load kèm cấu trúc Adapter từ hàm get_convnet.
-        # Ở đây ta giả định các tham số Adapter đã có tên nhận diện đặc trưng, ví dụ 'adaptmlp' hoặc không có trong bộ pre-trained.
-        # Dựa trên logic của tác giả trong aper_adapter.py, ta lấy các tham số requires_grad = True[cite: 3]
-        
-        # (Lưu ý: Mã gốc xử lý việc gán requires_grad lúc load weight ở hàm vit_base_patch16_224_adapter[cite: 3], 
-        # nên ở đây ta chỉ cần giữ nguyên trạng thái hoặc kiểm tra lại).
-        
+        # Chủ động mở khóa các tham số của adapter
+        for name, param in backbone.named_parameters():
+            if "adaptmlp" in name or "scale" in name:
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+                
         trainable_params = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
         logging.info(f"Adapter Strategy: Trainable params set by backbone loader: {trainable_params:,}")
         
@@ -1991,12 +2526,13 @@ from .adapter import AdapterStrategy
 from .prompt import PromptStrategy  # Tương tự cho VPT
 from .bn import BNTuningStrategy
 from .finetune import FinetuneStrategy
-def get_tuning_strategy(convnet_type: str) -> TuningStrategy:
+def get_tuning_strategy(convnet_type: str, model_name: str = "") -> TuningStrategy:
     """
-    Hàm Factory để trả về TuningStrategy phù hợp dựa trên tên convnet.
+    Hàm Factory để trả về TuningStrategy phù hợp dựa trên tên convnet và model_name.
    [cite: 23]
     """
     convnet_type = convnet_type.lower()
+    model_name = model_name.lower()
     
     if "ssf" in convnet_type:
         return SSFStrategy()
@@ -2162,40 +2698,75 @@ def get_pretrained_model(args: dict) -> nn.Module:
 import torch
 import torch.nn as nn
 
+VALID_MERGE_MODES = ("both", "adapted_only", "ptm_only", "dual_ptm")
+
+
+def _get_module_out_dim(module: nn.Module) -> int:
+    """Resolve feature dimension exposed by a backbone module."""
+    for attr in ("out_dim", "num_features", "embed_dim"):
+        val = getattr(module, attr, None)
+        if val is not None:
+            return int(val)
+    raise ValueError(f"Cannot determine output dimension for module {type(module).__name__}.")
+
+
+def _extract_features(branch: nn.Module, x: torch.Tensor) -> torch.Tensor:
+    """Run forward pass and unwrap dict outputs returned by some backbones."""
+    feat = branch(x)
+    if isinstance(feat, dict):
+        feat = feat["features"]
+    return feat
+
+
 class DualBranchEncoder(nn.Module):
     """
     Module hợp nhất đặc trưng từ mô hình PTM gốc và mô hình đã thích ứng (Adapted).
-    Tương đương với [phi*(x), phi(x)] trong bài báo APER.
-   [cite: 6, 23]
+    Hỗ trợ 4 chế độ ghép (`merge_mode`): "both", "adapted_only", "ptm_only", "dual_ptm".
     """
-    def __init__(self, frozen_ptm: nn.Module, adapted_ptm: nn.Module):
+
+    def __init__(self, frozen_ptm: nn.Module, adapted_ptm: nn.Module, merge_mode: str = "both"):
         super().__init__()
+        mode = str(merge_mode or "both").lower()
+        if mode not in VALID_MERGE_MODES:
+            raise ValueError(f"Unsupported merge_mode '{merge_mode}'. Expected one of {VALID_MERGE_MODES}.")
+
+        if mode in ("both", "dual_ptm") and (frozen_ptm is None or adapted_ptm is None):
+            raise ValueError(f"merge_mode '{mode}' requires both frozen_ptm and adapted_ptm.")
+        if mode == "ptm_only" and frozen_ptm is None:
+            raise ValueError("merge_mode 'ptm_only' requires frozen_ptm.")
+        if mode == "adapted_only" and adapted_ptm is None:
+            raise ValueError("merge_mode 'adapted_only' requires adapted_ptm.")
+
+        self.merge_mode = mode
         self.frozen_ptm = frozen_ptm
         self.adapted_ptm = adapted_ptm
-        
-        # Đảm bảo cả hai mô hình đều ở trạng thái eval và không cập nhật gradient
-        # vì giai đoạn Adapt đã kết thúc.
-        self.frozen_ptm.eval()
-        self.adapted_ptm.eval()
+
+        if self.merge_mode == "ptm_only":
+            self.out_dim = _get_module_out_dim(self.frozen_ptm)
+        elif self.merge_mode == "adapted_only":
+            self.out_dim = _get_module_out_dim(self.adapted_ptm)
+        else:
+            self.out_dim = _get_module_out_dim(self.adapted_ptm) + _get_module_out_dim(self.frozen_ptm)
+
+        # Đảm bảo các nhánh ở trạng thái eval và đóng băng gradient.
+        if self.frozen_ptm is not None:
+            self.frozen_ptm.eval()
+        if self.adapted_ptm is not None:
+            self.adapted_ptm.eval()
         for param in self.parameters():
             param.requires_grad = False
-            
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Trích xuất và nối đặc trưng từ cả hai nhánh."""
+        """Trích xuất đặc trưng theo `merge_mode` đã cấu hình."""
         with torch.no_grad():
-            feat_adapted = self.adapted_ptm(x)
-            feat_frozen = self.frozen_ptm(x)
-            
-            # Xử lý trường hợp mô hình gốc trả về dict (dựa theo code của tác giả)
-            if isinstance(feat_adapted, dict):
-                feat_adapted = feat_adapted['features']
-            if isinstance(feat_frozen, dict):
-                feat_frozen = feat_frozen['features']
-                
-            # Hợp nhất đặc trưng theo chiều channel: [phi*(x), phi(x)]
-            merged_features = torch.cat([feat_adapted, feat_frozen], dim=-1)
-            
-        return merged_features
+            if self.merge_mode == "ptm_only":
+                return _extract_features(self.frozen_ptm, x)
+            if self.merge_mode == "adapted_only":
+                return _extract_features(self.adapted_ptm, x)
+
+            feat_adapted = _extract_features(self.adapted_ptm, x)
+            feat_frozen = _extract_features(self.frozen_ptm, x)
+            return torch.cat([feat_adapted, feat_frozen], dim=-1)
 ====src/models/__init__.py
 from .merged_encoder import DualBranchEncoder
 from .classifiers import CosinePrototypeClassifier
@@ -2388,6 +2959,7 @@ def _compute_metrics(y_pred: np.ndarray, y_true: np.ndarray, nb_old: int, increm
 
     return metrics
 ====src/framework/learner.py
+import math
 import os
 import sys
 import copy
@@ -2401,84 +2973,310 @@ from tqdm import tqdm
 
 # Đã bỏ comment các Import thực tế
 from data.task_manager import ContinualTaskManager
-from tuning import get_tuning_strategy
+from tuning import FreezeStrategy, get_tuning_strategy
 from models.backbones import get_pretrained_model
-from models.merged_encoder import DualBranchEncoder
+from models.merged_encoder import DualBranchEncoder, VALID_MERGE_MODES
 from models.classifiers import CosinePrototypeClassifier
 from framework.evaluator import evaluate
+from utils.metrics import count_parameters
+
+
+def _is_wandb_enabled(args: dict) -> bool:
+    """Return True when W&B tracking is enabled via CLI or config."""
+    return bool(args.get("use_wandb") or args.get("wandb"))
+
+
+_MERGE_MODE_METHOD_NAMES = {
+    "ptm_only": "simplecil_ptm",
+    "adapted_only": "simplecil_adapted",
+    "dual_ptm": "simplecil_21k+1k",
+}
+
+
+def _resolve_method_name(args: dict) -> str:
+    """Resolve canonical Table 1 or Experiment 2 ablation method name."""
+    merge_mode = str(args.get("merge_mode") or "both").lower()
+    if merge_mode in _MERGE_MODE_METHOD_NAMES:
+        method_name = _MERGE_MODE_METHOD_NAMES[merge_mode]
+    else:
+        model_name = str(args.get("model_name", "unknown"))
+        if model_name.lower() == "aper_vpt":
+            vpt_type = str(args.get("vpt_type", "shallow")).lower()
+            method_name = f"aper_vpt-{vpt_type}"
+        else:
+            method_name = model_name
+
+    adapt_stages = args.get("adapt_stages")
+    if adapt_stages is not None:
+        method_name = f"{method_name}_adapt-{int(adapt_stages)}"
+    return method_name
+
+
+def _resolve_wandb_tags(args: dict) -> list:
+    """Build W&B run tags including automatic `backbone:<backbone_type>`."""
+    tags = []
+    backbone_type = args.get("backbone_type") or args.get("convnet_type")
+    if backbone_type:
+        tags.append(f"backbone:{backbone_type}")
+
+    extra_tags = args.get("wandb_tags")
+    if isinstance(extra_tags, str):
+        candidates = [t.strip() for t in extra_tags.replace(",", " ").split() if t.strip()]
+    elif isinstance(extra_tags, (list, tuple, set)):
+        candidates = [str(t).strip() for t in extra_tags if str(t).strip()]
+    else:
+        candidates = []
+
+    for tag in candidates:
+        if tag not in tags:
+            tags.append(tag)
+    return tags
+
+
+def _init_wandb(args: dict, learner):
+    """Initialize a W&B run when tracking is enabled and return the run object."""
+    if not _is_wandb_enabled(args):
+        return None
+
+    try:
+        import wandb
+    except ImportError as exc:
+        raise ImportError(
+            "W&B tracking is enabled, but `wandb` is not installed. "
+            "Please install it with `pip install wandb`."
+        ) from exc
+
+    method_name = _resolve_method_name(args)
+    dataset = args.get("dataset", "unknown")
+    init_cls = args.get("init_cls", 0)
+    increment = args.get("increment", 10)
+    seed = args.get("seed", 1)
+    backbone_type = args.get("backbone_type") or args.get("convnet_type")
+    tags = _resolve_wandb_tags(args)
+
+    total_params = count_parameters(learner.adapted_ptm, trainable=False)
+    trainable_params = count_parameters(learner.adapted_ptm, trainable=True)
+
+    entity = args.get("wandb_entity") or "nnm-hcmus"
+    project = args.get("wandb_project") or "Group7-ML-Lab"
+    group = args.get("wandb_group") or f"{dataset}_init{init_cls}_inc{increment}"
+    name = args.get("wandb_name") or f"{method_name}_{dataset}_B{init_cls}_Inc{increment}_seed{seed}"
+
+    config = {}
+    for key, value in args.items():
+        if key in ("convnet_type", "wandb_tags"):
+            continue
+        if key == "device" and isinstance(value, (list, tuple)):
+            config[key] = [str(d) for d in value]
+        else:
+            config[key] = value
+    if backbone_type:
+        config["backbone_type"] = backbone_type
+    config["method_name"] = method_name
+    config["total_params"] = total_params
+    config["trainable_params"] = trainable_params
+
+    run = wandb.init(
+        entity=entity,
+        project=project,
+        group=group,
+        name=name,
+        tags=tags,
+        config=config,
+    )
+
+    summary_target = getattr(wandb, "run", None) or run
+    if summary_target is not None and getattr(summary_target, "summary", None) is not None:
+        summary_target.summary["total_params"] = total_params
+        summary_target.summary["trainable_params"] = trainable_params
+
+    learner._wandb = wandb
+    learner.wandb_run = run
+    return run
 
 def train(args):
     seed_list = copy.deepcopy(args.get("seed", [1]))
     device = copy.deepcopy(args.get("device", ["0"]))
     for seed in seed_list:
-        args["seed"] = seed
-        args["device"] = device
-        _train(args)
+        run_args = copy.deepcopy(args)
+        run_args["seed"] = seed
+        run_args["device"] = copy.deepcopy(device)
+        _train(run_args)
+
 
 def _train(args):
     _set_random(args["seed"])
     _set_device(args)
     _setup_logging(args)
-    
-    logging.info("Khởi tạo Data Manager...")
-    data_manager = ContinualTaskManager(args)
-    
-    logging.info("Khởi tạo APER Learner...")
-    learner = APERLearner(args)
-    
-    for task_id in range(data_manager.nb_tasks):
-        logging.info(f"========== Bắt đầu Task {task_id} ==========")
-        nb_old = data_manager.known_classes
-        train_loader, test_loader, proto_loader = data_manager.get_task_loaders(task_id)
-        class_ids = data_manager.get_class_ids(task_id)
-    
-        learner.execute_task(task_id, train_loader, proto_loader, class_ids)
-        
-        eval_results = learner.evaluate(test_loader, nb_old )
-        logging.info(f"Kết quả Task {task_id}: {eval_results}")
+
+    wandb_run = None
+    learner = None
+    try:
+        logging.info("Khởi tạo Data Manager...")
+        data_manager = ContinualTaskManager(args)
+
+        logging.info("Khởi tạo APER Learner...")
+        learner = APERLearner(args)
+        wandb_run = _init_wandb(args, learner)
+
+        top1_curve, top5_curve = [], []
+        for task_id in range(data_manager.nb_tasks):
+            logging.info(f"========== Bắt đầu Task {task_id} ==========")
+            nb_old = data_manager.known_classes
+            train_loader, test_loader, proto_loader = data_manager.get_task_loaders(task_id)
+            class_ids = data_manager.get_class_ids(task_id)
+
+            learner.execute_task(task_id, train_loader, proto_loader, class_ids)
+
+            eval_results = learner.evaluate(test_loader, nb_old)
+            logging.info(f"Kết quả Task {task_id}: {eval_results}")
+
+            top1 = float(eval_results["top1"])
+            top5 = float(eval_results.get("top5", 0.0))
+            top1_curve.append(top1)
+            top5_curve.append(top5)
+            avg_acc_so_far = round(float(np.mean(top1_curve)), 2)
+
+            learner._log_wandb(
+                {
+                    "task/task_id": task_id,
+                    "task/seen_classes": data_manager.known_classes,
+                    "eval/top1": top1,
+                    "eval/top5": top5,
+                    "eval/old_acc": float(eval_results.get("old", 0.0)),
+                    "eval/new_acc": float(eval_results.get("new", 0.0)),
+                    "eval/avg_acc_so_far": avg_acc_so_far,
+                }
+            )
+
+        if top1_curve:
+            avg_acc = round(float(np.mean(top1_curve)), 2)
+            last_acc = round(float(top1_curve[-1]), 2)
+            top5_avg_acc = round(float(np.mean(top5_curve)), 2)
+            top5_last_acc = round(float(top5_curve[-1]), 2)
+
+            method_name = _resolve_method_name(args)
+            logging.info(f"Top-1 curve: {top1_curve}")
+            logging.info(f"Top-5 curve: {top5_curve}")
+            logging.info(
+                f"[{method_name} | {args.get('dataset', 'unknown')} | seed={args.get('seed', 1)}] "
+                f"Table 1 Summary => avg_acc: {avg_acc:.2f}, last_acc: {last_acc:.2f}"
+            )
+
+            wandb_mod = getattr(learner, "_wandb", None)
+            summary_target = (getattr(wandb_mod, "run", None) if wandb_mod is not None else None) or wandb_run
+            if summary_target is not None and getattr(summary_target, "summary", None) is not None:
+                summary_target.summary["avg_acc"] = avg_acc
+                summary_target.summary["last_acc"] = last_acc
+                summary_target.summary["table1/avg_acc"] = avg_acc
+                summary_target.summary["table1/last_acc"] = last_acc
+                summary_target.summary["top5_avg_acc"] = top5_avg_acc
+                summary_target.summary["top5_last_acc"] = top5_last_acc
+                summary_target.summary["top1_curve"] = top1_curve
+                summary_target.summary["top5_curve"] = top5_curve
+    finally:
+        if wandb_run is not None:
+            wandb_mod = getattr(learner, "_wandb", None) if learner is not None else None
+            if wandb_mod is not None and hasattr(wandb_mod, "finish"):
+                wandb_mod.finish()
+            elif hasattr(wandb_run, "finish"):
+                wandb_run.finish()
 
 
 class APERLearner:
     def __init__(self, args):
         self.args = args
         self.device = args["device"][0]
-        
+        self.merge_mode = str(args.get("merge_mode") or "both").lower()
+        if self.merge_mode not in VALID_MERGE_MODES:
+            raise ValueError(
+                f"Unsupported merge_mode '{self.merge_mode}'. Expected one of {VALID_MERGE_MODES}."
+            )
+
         # 1. Lấy mô hình tiền huấn luyện PTM
         self.frozen_ptm = get_pretrained_model(args).to(self.device)
-            
-        # 2. Lấy chiến lược Tuning (Adapter, VPT, SSF, Finetune, hoặc SimpleCIL - Freeze)
-        self.strategy = get_tuning_strategy(args["convnet_type"])
-        
-        # 3. Tạo mô hình thích ứng (Adapted Model) bằng cách Unfreeze chọn lọc
-        self.adapted_ptm = self.strategy.prepare_adapted_model(copy.deepcopy(self.frozen_ptm)).to(self.device)
-        
-        # 4. Khởi tạo rỗng cho Encoder và Classifier
+
+        # 2. Lấy chiến lược Tuning và khởi tạo nhánh thứ hai theo merge_mode
+        if self.merge_mode == "dual_ptm":
+            second_args = copy.deepcopy(args)
+            second_args["convnet_type"] = args.get("second_convnet_type", "pretrained_vit_b16_224")
+            self.strategy = FreezeStrategy()
+            self.adapted_ptm = get_pretrained_model(second_args).to(self.device)
+        elif self.merge_mode == "ptm_only":
+            self.strategy = FreezeStrategy()
+            self.adapted_ptm = self.strategy.prepare_adapted_model(
+                copy.deepcopy(self.frozen_ptm)
+            ).to(self.device)
+        else:
+            self.strategy = get_tuning_strategy(args["convnet_type"], args.get("model_name", ""))
+            self.adapted_ptm = self.strategy.prepare_adapted_model(
+                copy.deepcopy(self.frozen_ptm)
+            ).to(self.device)
+
+        # 3. Khởi tạo rỗng cho Encoder và Classifier với số chiều khớp merge_mode
         self.encoder = None
-        self.classifier = CosinePrototypeClassifier(in_features=self.frozen_ptm.out_dim * 2).to(self.device)
+        if self.merge_mode == "ptm_only":
+            classifier_in_dim = self.frozen_ptm.out_dim
+        elif self.merge_mode == "adapted_only":
+            classifier_in_dim = self.adapted_ptm.out_dim
+        else:
+            classifier_in_dim = self.frozen_ptm.out_dim + self.adapted_ptm.out_dim
+        self.classifier = CosinePrototypeClassifier(in_features=classifier_in_dim).to(self.device)
+        self._wandb = None
+        self.wandb_run = None
 
     def execute_task(self, task_id: int, train_loader: DataLoader, proto_loader: DataLoader, class_ids: list):
-        if task_id == 0:
-            self._adapt_model(train_loader)
-            
-            # Giai đoạn 2: Đóng băng nhánh vừa huấn luyện và kết hợp 2 nhánh [phi*, phi]
+        adapt_stages_raw = self.args.get("adapt_stages", 1)
+        adapt_stages = 1 if adapt_stages_raw is None else int(adapt_stages_raw)
+        if adapt_stages < 0:
+            raise ValueError(f"adapt_stages must be >= 0, got {adapt_stages}")
+
+        nb_old = self.classifier.weight.shape[0]
+        if task_id < adapt_stages:
+            if task_id > 0:
+                self.adapted_ptm = self.strategy.prepare_adapted_model(self.adapted_ptm).to(self.device)
+            self._adapt_model(train_loader, nb_old=nb_old, nb_new=len(class_ids), task_id=task_id)
+
+            # Đóng băng nhánh vừa huấn luyện và kết hợp nhánh theo merge_mode
             self.adapted_ptm.eval()
             for param in self.adapted_ptm.parameters():
                 param.requires_grad = False
-                
-            self.encoder = DualBranchEncoder(self.frozen_ptm, self.adapted_ptm)
-        
+
+            self.encoder = DualBranchEncoder(self.frozen_ptm, self.adapted_ptm, merge_mode=self.merge_mode)
+        elif self.encoder is None:
+            self.adapted_ptm.eval()
+            for param in self.adapted_ptm.parameters():
+                param.requires_grad = False
+            self.encoder = DualBranchEncoder(self.frozen_ptm, self.adapted_ptm, merge_mode=self.merge_mode)
+
         # Giai đoạn 3: Tính toán Prototypes
         self._update_prototypes(proto_loader, class_ids)
         
+    def _log_wandb(self, metrics: dict):
+        """Log a metrics dictionary to W&B when an active session is attached."""
+        if self._wandb is not None and getattr(self._wandb, "run", None) is not None:
+            self._wandb.log(metrics)
+        elif self.wandb_run is not None and hasattr(self.wandb_run, "log"):
+            self.wandb_run.log(metrics)
+
     def evaluate(self, test_loader, known_classes):
-        return evaluate(self.encoder, self.classifier, test_loader, known_classes, self.device)
+        """Đánh giá mô hình trên tập test."""
+        return evaluate(
+            self.encoder,
+            self.classifier,
+            test_loader,
+            known_classes,
+            self.device,
+            increment=self.args.get("increment", 10),
+        )
 
     # ... Giữ nguyên các hàm _adapt_model, _update_prototypes, _set_device, v.v. đã viết ở lần trước ...
 
-    def _adapt_model(self, train_loader):
+    def _adapt_model(self, train_loader, nb_old: int = 0, nb_new: int = None, task_id: int = 0):
         """
         Huấn luyện tham số của adapted_ptm dựa trên chiến lược (Strategy) đã quy định.
-       [cite: 1, 2]
+        Khi `nb_old > 0` (chặng b >= 1), giữ đóng băng trọng số các lớp cũ W_old và
+        chỉ tối ưu tham số PET cùng trọng số lớp mới W_new.
         """
         if not self.strategy.requires_training:
             logging.info("Chiến lược hiện tại không yêu cầu huấn luyện (SimpleCIL). Bỏ qua bước Adapt.")
@@ -2496,7 +3294,7 @@ class APERLearner:
             logging.info("Hoàn tất cập nhật Batch Normalization (Không dùng Backprop).")
             return
         epochs = self.args.get("tuned_epoch", 20)
-        logging.info(f"Bắt đầu tinh chỉnh (Adaptation) trong {epochs} epochs...")
+        logging.info(f"Bắt đầu tinh chỉnh (Adaptation) Task {task_id} trong {epochs} epochs...")
         
         self.adapted_ptm.train()
         self.adapted_ptm.to(self.device)
@@ -2515,14 +3313,27 @@ class APERLearner:
         min_lr = self.args.get("min_lr", 1e-8)
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=min_lr)
 
-        # 3. Tạo một Classifier tuyến tính TẠM THỜI để tính Loss trong quá trình huấn luyện Task 1
-        temp_classifier = torch.nn.Linear(self.adapted_ptm.out_dim, self.args.get('init_cls', 50)).to(self.device)
-        temp_opt = optim.SGD(temp_classifier.parameters(), lr=lr)
+        # 3. Tạo Classifier tạm thời (chặng 0) hoặc ghép W_old (đóng băng) + W_new (huấn luyện) ở chặng b >= 1
+        if nb_new is None:
+            nb_new = self.args.get("init_cls", 50)
+        feat_dim = self.adapted_ptm.out_dim
+        if nb_old > 0:
+            w_old = self.classifier.weight[:nb_old, :feat_dim].detach().clone().to(self.device)
+            w_old.requires_grad_(False)
+            w_new = torch.nn.Parameter(torch.empty(nb_new, feat_dim, device=self.device))
+            torch.nn.init.kaiming_uniform_(w_new, a=math.sqrt(5))
+            temp_classifier = None
+            temp_opt = optim.SGD([w_new], lr=lr)
+        else:
+            w_old, w_new = None, None
+            temp_classifier = torch.nn.Linear(feat_dim, nb_new).to(self.device)
+            temp_opt = optim.SGD(temp_classifier.parameters(), lr=lr)
 
         # 4. Vòng lặp huấn luyện Cross Entropy
         for epoch in range(epochs):
             self.adapted_ptm.train()
-            temp_classifier.train()
+            if temp_classifier is not None:
+                temp_classifier.train()
             losses, correct, total = 0.0, 0, 0
 
             for _, inputs, targets in train_loader:
@@ -2533,8 +3344,15 @@ class APERLearner:
                 if isinstance(features, dict):
                     features = features['features']
 
-                # Tính Cross Entropy Loss[cite: 2]
-                logits = temp_classifier(features)
+                # Tính Cross Entropy Loss
+                if nb_old > 0:
+                    combined_weight = torch.cat([w_old, w_new], dim=0)
+                    logits = 16.0 * F.linear(
+                        F.normalize(features, p=2, dim=1),
+                        F.normalize(combined_weight, p=2, dim=1),
+                    )
+                else:
+                    logits = temp_classifier(features)
                 loss = F.cross_entropy(logits, targets)
 
                 # Cập nhật Gradient
@@ -2549,11 +3367,22 @@ class APERLearner:
                 correct += preds.eq(targets).sum().item()
                 total += len(targets)
 
+            current_lr = optimizer.param_groups[0]["lr"]
             scheduler.step()
-            train_acc = (correct * 100.0) / total
-            
+            avg_loss = losses / len(train_loader) if len(train_loader) > 0 else 0.0
+            train_acc = (correct * 100.0) / total if total > 0 else 0.0
+
+            self._log_wandb(
+                {
+                    "adapt/epoch": epoch + 1,
+                    "adapt/loss": avg_loss,
+                    "adapt/train_acc": train_acc,
+                    "adapt/lr": current_lr,
+                }
+            )
+
             if (epoch + 1) % 5 == 0 or epoch == 0:
-                logging.info(f"Task 0, Epoch {epoch + 1}/{epochs} => Loss {losses/len(train_loader):.3f}, Train Acc {train_acc:.2f}%")
+                logging.info(f"Task {task_id}, Epoch {epoch + 1}/{epochs} => Loss {avg_loss:.3f}, Train Acc {train_acc:.2f}%")
 
         logging.info("Hoàn tất quá trình Adaptation.")
 
@@ -2602,17 +3431,16 @@ class APERLearner:
         self.classifier.register_prototypes(new_prototypes)
         logging.info("Đã cập nhật Prototypes vào Classifier thành công.")
 
-    def evaluate(self, test_loader, known_classes):
-        """Đánh giá mô hình trên tập test."""
-        return evaluate(self.encoder, self.classifier, test_loader, known_classes, self.device)
-        pass
-
 # ================= Các hàm phụ trợ (Utility) =================
 def _set_device(args):
-    device_type = args["device"]
+    device_type = args.get("device", ["0"])
+    if not isinstance(device_type, (list, tuple)):
+        device_type = [device_type]
     gpus = []
     for device in device_type:
-        if device_type == -1:
+        if isinstance(device, torch.device):
+            gpus.append(device)
+        elif str(device) == "-1" or str(device).lower() == "cpu":
             gpus.append(torch.device("cpu"))
         else:
             gpus.append(torch.device(f"cuda:{device}"))
@@ -2627,7 +3455,8 @@ def _set_random(seed):
 
 def _setup_logging(args):
     init_cls = 0 if args.get("init_cls") == args.get("increment") else args.get("init_cls", 0)
-    log_dir = f"logs/{args.get('model_name', 'aper')}/{args.get('dataset', 'unknown')}/{init_cls}/{args.get('increment', 0)}"
+    method_name = _resolve_method_name(args)
+    log_dir = f"logs/{method_name}/{args.get('dataset', 'unknown')}/{init_cls}/{args.get('increment', 0)}"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
         
@@ -2637,7 +3466,7 @@ def _setup_logging(args):
         level=logging.INFO,
         format="%(asctime)s [%(filename)s] => %(message)s",
         handlers=[
-            logging.FileHandler(filename=logfilename),
+            logging.FileHandler(filename=logfilename, encoding="utf-8"),
             logging.StreamHandler(sys.stdout),
         ],
     )

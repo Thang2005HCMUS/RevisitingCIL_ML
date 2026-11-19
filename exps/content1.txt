@@ -1,0 +1,1223 @@
+====aper_adapter/imagenetr_5_5_vit-b_adapter.json
+{
+    "prefix": "exp",
+    "dataset": "imagenetr",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_adapter",
+    "convnet_type": "pretrained_vit_b16_224_in21k_adapter",
+    "weight_decay":0.005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.05,
+    "batch_size": 24
+}
+====aper_adapter/cub_10_10_vit-b_adapter.json
+{
+    "prefix": "exp",
+    "dataset": "cub",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_adapter",
+    "convnet_type": "pretrained_vit_b16_224_in21k_adapter",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_adapter/objectnet_10_10_vit-b_adapter.json
+{
+    "prefix": "exp",
+    "dataset": "objectnet",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_adapter",
+    "convnet_type": "pretrained_vit_b16_224_in21k_adapter",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_adapter/vtab_10_10_vit-b_adapter.json
+{
+    "prefix": "exp",
+    "dataset": "vtab",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": false,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_adapter",
+    "convnet_type": "pretrained_vit_b16_224_in21k_adapter",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_adapter/omni_30_30_vit-b_adapter.json
+{
+    "prefix": "exp",
+    "dataset": "omnibenchmark",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 30,
+    "increment": 30,
+    "model_name": "aper_adapter",
+    "convnet_type": "pretrained_vit_b16_224_in21k_adapter",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_adapter/cifar224_5_5_vit-b_adapter.json
+{
+    "prefix": "exp",
+    "dataset": "cifar224",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_adapter",
+    "convnet_type": "pretrained_vit_b16_224_in21k_adapter",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_adapter/imageneta_10_10_vit-b_adapter.json
+{
+    "prefix": "exp",
+    "dataset": "imageneta",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_adapter",
+    "convnet_type": "pretrained_vit_b16_224_in21k_adapter",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_finetune/omni_30_30_vit-b_finetune.json
+{
+    "prefix": "exp",
+    "dataset": "omnibenchmark",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 30,
+    "increment": 30,
+    "model_name": "aper_finetune",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 5,
+    "init_lr": 0.01,
+    "batch_size": 128
+}
+====aper_finetune/imageneta_10_10_vit-b_finetune.json
+{
+    "prefix": "exp",
+    "dataset": "imageneta",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_finetune",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 5,
+    "init_lr": 0.01,
+    "batch_size": 128
+}
+====aper_finetune/cifar224_5_5_vit-b_finetune.json
+{
+    "prefix": "exp",
+    "dataset": "cifar224",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_finetune",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 5,
+    "init_lr": 0.01,
+    "batch_size": 128
+}
+====aper_finetune/vtab_10_10_vit-b_finetune.json
+{
+    "prefix": "exp",
+    "dataset": "vtab",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": false,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_finetune",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 5,
+    "init_lr": 0.01,
+    "batch_size": 128
+}
+====aper_finetune/imagenetr_5_5_vit-b_finetune.json
+{
+    "prefix": "exp",
+    "dataset": "imagenetr",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_finetune",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 5,
+    "init_lr": 0.01,
+    "batch_size": 128
+}
+====aper_finetune/objectnet_10_10_vit-b_finetune.json
+{
+    "prefix": "exp",
+    "dataset": "objectnet",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_finetune",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 5,
+    "init_lr": 0.01,
+    "batch_size": 128
+}
+====aper_finetune/cub_10_10_vit-b_finetune.json
+{
+    "prefix": "exp",
+    "dataset": "cub",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_finetune",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 5,
+    "init_lr": 0.01,
+    "batch_size": 128
+}
+====aper_vpt-deep/cifar224_5_5_vit-b_vpt-deep.json
+{
+    "prefix": "exp_vpt-deep",
+    "dataset": "cifar224",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"deep",
+    "prompt_token_num":5,
+    "min_lr": 0,
+    "optimizer": "sgd",
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 5,
+    "init_lr": 0.05,
+    "batch_size": 16
+}
+====aper_vpt-deep/imagenetr_5_5_vit-b_vpt-deep.json
+{
+    "prefix": "exp_vpt-deep",
+    "dataset": "imagenetr",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"deep",
+    "prompt_token_num":5,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 5,
+    "init_lr": 0.05,
+    "batch_size": 16
+}
+====aper_vpt-deep/cub_10_10_vit-b_vpt-deep.json
+{
+    "prefix": "exp_vpt-deep",
+    "dataset": "cub",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"deep",
+    "prompt_token_num":5,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 5,
+    "init_lr": 0.05,
+    "batch_size": 16
+}
+====aper_vpt-deep/vtab_10_10_vit-b_vpt-deep.json
+{
+    "prefix": "exp_vpt-deep",
+    "dataset": "vtab",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": false,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"deep",
+    "prompt_token_num":5,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 5,
+    "init_lr": 0.05,
+    "batch_size": 16
+}
+====aper_vpt-deep/imageneta_10_10_vit-b_vpt-deep.json
+{
+    "prefix": "exp_vpt-deep",
+    "dataset": "imageneta",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"deep",
+    "prompt_token_num":5,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 5,
+    "init_lr": 0.05,
+    "batch_size": 16
+}
+====aper_vpt-deep/omni_30_30_vit-b_vpt-deep.json
+{
+    "prefix": "exp_vpt-deep",
+    "dataset": "omnibenchmark",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 30,
+    "increment": 30,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"deep",
+    "prompt_token_num":5,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_vpt-deep/objectnet_10_10_vit-b_vpt-deep.json
+{
+    "prefix": "exp_vpt-deep",
+    "dataset": "objectnet",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"deep",
+    "prompt_token_num":5,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 128
+}
+====aper_bn/omni_30_30_resnet18_bn.json
+{
+    "prefix": "exp",
+    "dataset": "omnibenchmark",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 30,
+    "increment": 30,
+    "model_name": "aper_bn",
+    "convnet_type": "pretrained_resnet18",
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 10,
+    "init_lr": 0.01,
+    "batch_size": 192
+}
+====aper_bn/cifar224_5_5_resnet18_bn.json
+{
+    "prefix": "exp",
+    "dataset": "cifar224",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_bn",
+    "convnet_type": "pretrained_resnet18",
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 10,
+    "init_lr": 0.01,
+    "batch_size": 192
+}
+====aper_ssf/imageneta_10_10_vit-b_ssf.json
+{
+    "prefix": "exp",
+    "dataset": "imageneta",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_ssf",
+    "convnet_type": "pretrained_vit_b16_224_in21k_ssf",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_ssf/cifar224_5_5_vit-b_ssf.json
+{
+    "prefix": "exp",
+    "dataset": "cifar224",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_ssf",
+    "convnet_type": "pretrained_vit_b16_224_in21k_ssf",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_ssf/imagenetr_5_5_vit-b_ssf.json
+{
+    "prefix": "exp",
+    "dataset": "imagenetr",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_ssf",
+    "convnet_type": "pretrained_vit_b16_224_in21k_ssf",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_ssf/objectnet_10_10_vit-b_ssf.json
+{
+    "prefix": "exp",
+    "dataset": "objectnet",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_ssf",
+    "convnet_type": "pretrained_vit_b16_224_in21k_ssf",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_ssf/cub_10_10_vit-b_ssf.json
+{
+    "prefix": "exp",
+    "dataset": "cub",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_ssf",
+    "convnet_type": "pretrained_vit_b16_224_in21k_ssf",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_ssf/vtab_10_10_vit-b_ssf.json
+{
+    "prefix": "exp",
+    "dataset": "vtab",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": false,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_ssf",
+    "convnet_type": "pretrained_vit_b16_224_in21k_ssf",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_ssf/omni_30_30_vit-b_ssf.json
+{
+    "prefix": "exp",
+    "dataset": "omnibenchmark",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 30,
+    "increment": 30,
+    "model_name": "aper_ssf",
+    "convnet_type": "pretrained_vit_b16_224_in21k_ssf",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_ssf/resnet/omni_30_30_resnet18_ssf.json
+{
+    "prefix": "exp",
+    "dataset": "omnibenchmark",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 30,
+    "increment": 30,
+    "model_name": "aper_ssf",
+    "convnet_type": "pretrained_resnet18_ssf",
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 192
+}
+====aper_ssf/resnet/cifar224_5_5_resnet18_ssf.json
+{
+    "prefix": "exp",
+    "dataset": "cifar224",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_ssf",
+    "convnet_type": "pretrained_resnet18_ssf",
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 10,
+    "init_lr": 0.01,
+    "batch_size": 192
+}
+====aper_vpt-shallow/omni_30_30_vit-b_vpt-shallow.json
+{
+    "prefix": "exp_vpt-shallow",
+    "dataset": "omnibenchmark",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 30,
+    "increment": 30,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"shallow",
+    "prompt_token_num":5,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_vpt-shallow/imagenetr_5_5_vit-b_vpt-shallow.json
+{
+    "prefix": "exp_vpt-shallow",
+    "dataset": "imagenetr",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"shallow",
+    "prompt_token_num":5,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_vpt-shallow/vtab_10_10_vit-b_vpt-shallow.json
+{
+    "prefix": "exp_vpt-shallow",
+    "dataset": "vtab",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": false,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"shallow",
+    "prompt_token_num":5,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_vpt-shallow/cub_10_10_vit-b_vpt-shallow.json
+{
+    "prefix": "exp_vpt-shallow",
+    "dataset": "cub",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"shallow",
+    "prompt_token_num":5,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_vpt-shallow/objectnet_10_10_vit-b_vpt-shallow.json
+{
+    "prefix": "exp_vpt-shallow",
+    "dataset": "objectnet",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"shallow",
+    "prompt_token_num":5,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_vpt-shallow/imageneta_10_10_vit-b_vpt-shallow.json
+{
+    "prefix": "exp_vpt-shallow",
+    "dataset": "imageneta",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"shallow",
+    "prompt_token_num":5,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====aper_vpt-shallow/cifar224_5_5_vit-b_vpt-shallow.json
+{
+    "prefix": "exp_vpt-shallow",
+    "dataset": "cifar224",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_vpt",
+    "convnet_type": "pretrained_vit_b16_224_in21k_vpt",
+    "weight_decay":0.0005,
+    "vpt_type":"shallow",
+    "prompt_token_num":5,
+    "min_lr": 0,
+    "optimizer": "sgd",
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====simplecil/vtab_10_10_vit-b_simplecil.json
+{
+    "prefix": "exp",
+    "dataset": "vtab",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": false,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "simplecil",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====simplecil/cifar224_5_5_vit-b_simplecil.json
+{
+    "prefix": "exp",
+    "dataset": "cifar224",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "simplecil",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====simplecil/imagenetr_5_5_vit-b_simplecil.json
+{
+    "prefix": "exp",
+    "dataset": "imagenetr",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "simplecil",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====simplecil/objectnet_10_10_vit-b_simplecil.json
+{
+    "prefix": "exp",
+    "dataset": "objectnet",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "simplecil",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====simplecil/omni_30_30_vit-b_simplecil.json
+{
+    "prefix": "exp",
+    "dataset": "omnibenchmark",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 30,
+    "increment": 30,
+    "model_name": "simplecil",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====simplecil/imageneta_10_10_vit-b_simplecil.json
+{
+    "prefix": "exp",
+    "dataset": "imageneta",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "simplecil",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}
+====simplecil/cub_10_10_vit-b_simplecil.json
+{
+    "prefix": "exp",
+    "dataset": "cub",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 10,
+    "increment": 10,
+    "model_name": "simplecil",
+    "convnet_type": "pretrained_vit_b16_224_in21k",
+    "weight_decay":0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+}

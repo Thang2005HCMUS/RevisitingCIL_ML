@@ -1,0 +1,66 @@
+{
+  "exps/aper_vpt-deep/cifar224_5_5_vit-b_vpt-deep.json": {
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+  },
+  "exps/aper_vpt-deep/cub_10_10_vit-b_vpt-deep.json": {
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+  },
+  "exps/aper_vpt-deep/imageneta_10_10_vit-b_vpt-deep.json": {
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+  },
+  "exps/aper_vpt-deep/imagenetr_5_5_vit-b_vpt-deep.json": {
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+  },
+  "exps/aper_vpt-deep/vtab_10_10_vit-b_vpt-deep.json": {
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48
+  },
+  "exps/aper_vpt-deep/objectnet_10_10_vit-b_vpt-deep.json": {
+    "batch_size": 48
+  },
+  "exps/aper_adapter/imagenetr_5_5_vit-b_adapter.json": {
+    "init_lr": 0.01,
+    "batch_size": 48,
+    "weight_decay": 0.0005
+  },
+  "exps/aper_finetune/cifar224_5_5_vit-b_finetune.json": {
+    "tuned_epoch": 20,
+    "batch_size": 48
+  },
+  "exps/aper_finetune/cub_10_10_vit-b_finetune.json": {
+    "tuned_epoch": 20,
+    "batch_size": 48
+  },
+  "exps/aper_finetune/imageneta_10_10_vit-b_finetune.json": {
+    "tuned_epoch": 20,
+    "batch_size": 48
+  },
+  "exps/aper_finetune/imagenetr_5_5_vit-b_finetune.json": {
+    "tuned_epoch": 20,
+    "batch_size": 48
+  },
+  "exps/aper_finetune/objectnet_10_10_vit-b_finetune.json": {
+    "tuned_epoch": 20,
+    "batch_size": 48
+  },
+  "exps/aper_finetune/omni_30_30_vit-b_finetune.json": {
+    "tuned_epoch": 20,
+    "batch_size": 48
+  },
+  "exps/aper_finetune/vtab_10_10_vit-b_finetune.json": {
+    "tuned_epoch": 20,
+    "batch_size": 48
+  },
+  "exps/aper_ssf/imageneta_10_10_vit-b_ssf.json": {
+    "init_lr": 0.005
+  }
+}

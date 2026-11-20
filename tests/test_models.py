@@ -80,6 +80,126 @@ class TestDualBranchEncoderMergeModes(unittest.TestCase):
             DualBranchEncoder(frozen, adapted, merge_mode="unknown")
 
 
+class _LinearFeatureBackbone(nn.Module):
+    def __init__(self, in_dim: int, out_dim: int, seed: int):
+        super().__init__()
+        g = torch.Generator().manual_seed(seed)
+        self.proj = nn.Linear(in_dim, out_dim, bias=False)
+        with torch.no_grad():
+            self.proj.weight.copy_(torch.randn(out_dim, in_dim, generator=g))
+        self.out_dim = out_dim
+
+    def forward(self, x):
+        return self.proj(x)
+
+
+class TestDualBranchEncoderWeightedMixing(unittest.TestCase):
+    def test_weighted_mixing_unit_norm_and_linear_cosine_decomposition(self):
+        torch.manual_seed(0)
+        frozen = _LinearFeatureBackbone(in_dim=8, out_dim=16, seed=10)
+        adapted = _LinearFeatureBackbone(in_dim=8, out_dim=16, seed=20)
+        x = torch.randn(5, 8)
+
+        with torch.no_grad():
+            f_frozen = torch.nn.functional.normalize(frozen(x), p=2, dim=-1)
+            f_adapted = torch.nn.functional.normalize(adapted(x), p=2, dim=-1)
+            cos_frozen = f_frozen @ f_frozen.T
+            cos_adapted = f_adapted @ f_adapted.T
+
+        for alpha in (0.0, 0.2, 0.5, 0.8, 1.0):
+            enc = DualBranchEncoder(frozen, adapted, merge_mode="both", alpha=alpha, weighted_norm=True)
+            self.assertEqual(enc.out_dim, 32)
+            out = enc(x)
+            norms = torch.linalg.norm(out, dim=-1)
+            self.assertTrue(torch.allclose(norms, torch.ones(5), atol=1e-5))
+
+            cos_merged = torch.nn.functional.normalize(out, p=2, dim=-1) @ torch.nn.functional.normalize(out, p=2, dim=-1).T
+            expected = alpha * cos_adapted + (1.0 - alpha) * cos_frozen
+            self.assertTrue(torch.allclose(cos_merged, expected, atol=1e-5))
+
+    def test_weighted_mixing_boundary_values(self):
+        torch.manual_seed(1)
+        frozen = _LinearFeatureBackbone(in_dim=6, out_dim=12, seed=30)
+        adapted = _LinearFeatureBackbone(in_dim=6, out_dim=12, seed=40)
+        x = torch.randn(4, 6)
+
+        with torch.no_grad():
+            f_frozen = torch.nn.functional.normalize(frozen(x), p=2, dim=-1)
+            f_adapted = torch.nn.functional.normalize(adapted(x), p=2, dim=-1)
+
+        enc_0 = DualBranchEncoder(frozen, adapted, merge_mode="both", alpha=0.0, weighted_norm=True)
+        out_0 = enc_0(x)
+        self.assertTrue(torch.allclose(out_0[:, :12], torch.zeros(4, 12), atol=1e-6))
+        self.assertTrue(torch.allclose(out_0[:, 12:], f_frozen, atol=1e-5))
+        self.assertTrue(torch.allclose(out_0 @ out_0.T, f_frozen @ f_frozen.T, atol=1e-5))
+
+        enc_1 = DualBranchEncoder(frozen, adapted, merge_mode="both", alpha=1.0, weighted_norm=True)
+        out_1 = enc_1(x)
+        self.assertTrue(torch.allclose(out_1[:, :12], f_adapted, atol=1e-5))
+        self.assertTrue(torch.allclose(out_1[:, 12:], torch.zeros(4, 12), atol=1e-6))
+        self.assertTrue(torch.allclose(out_1 @ out_1.T, f_adapted @ f_adapted.T, atol=1e-5))
+
+        enc_half = DualBranchEncoder(frozen, adapted, merge_mode="both", alpha=0.5, weighted_norm=True)
+        out_half = enc_half(x)
+        scale = 0.5 ** 0.5
+        self.assertTrue(torch.allclose(out_half[:, :12], scale * f_adapted, atol=1e-5))
+        self.assertTrue(torch.allclose(out_half[:, 12:], scale * f_frozen, atol=1e-5))
+
+    def test_invalid_alpha_and_projected_dim_raise(self):
+        frozen = _DummyBackbone(in_dim=8, out_dim=16, fill_value=1.0)
+        adapted = _DummyBackbone(in_dim=8, out_dim=16, fill_value=2.0)
+
+        for bad_alpha in (-0.01, 1.01, float("nan"), True, "not_a_float"):
+            with self.assertRaises(ValueError):
+                DualBranchEncoder(frozen, adapted, alpha=bad_alpha, weighted_norm=True)
+
+        with self.assertRaises(ValueError):
+            DualBranchEncoder(frozen, adapted, projected_dim=0)
+
+    def test_projector_callable_and_transform_object_update_out_dim(self):
+        torch.manual_seed(2)
+        frozen = _LinearFeatureBackbone(in_dim=8, out_dim=16, seed=50)
+        adapted = _LinearFeatureBackbone(in_dim=8, out_dim=16, seed=60)
+        x = torch.randn(4, 8)
+
+        # 1. Callable torch projector with explicit projected_dim
+        proj_layer = nn.Linear(32, 10, bias=False)
+        enc_callable = DualBranchEncoder(
+            frozen,
+            adapted,
+            merge_mode="both",
+            alpha=0.3,
+            weighted_norm=True,
+            projector=proj_layer,
+            projected_dim=10,
+        )
+        self.assertEqual(enc_callable.out_dim, 10)
+        out_callable = enc_callable(x)
+        self.assertEqual(out_callable.shape, (4, 10))
+        self.assertTrue(all(not p.requires_grad for p in enc_callable.parameters()))
+
+        # 2. sklearn-style .transform() object exposing n_components
+        class _DummyPCAProjector:
+            def __init__(self, n_components: int):
+                self.n_components = n_components
+
+            def transform(self, arr):
+                return arr[:, : self.n_components]
+
+        enc_transform = DualBranchEncoder(
+            frozen,
+            adapted,
+            merge_mode="both",
+            alpha=0.7,
+            weighted_norm=True,
+            projector=_DummyPCAProjector(n_components=12),
+        )
+        self.assertEqual(enc_transform.out_dim, 12)
+        out_transform = enc_transform(x)
+        self.assertEqual(out_transform.shape, (4, 12))
+        self.assertEqual(out_transform.dtype, x.dtype)
+
+
 class TestAPERLearnerMergeModes(unittest.TestCase):
     def _make_fake_get_pretrained(self, call_log):
         def fake_get_pretrained(args):

@@ -1,0 +1,31 @@
+from .sensitivity_sweep import (
+    DEFAULT_ALPHA_GRID,
+    DEFAULT_K_GRID,
+    DEFAULT_RANDOM_SEEDS,
+    build_weighted_features,
+    evaluate_cil_trajectory,
+    export_sweep_csv,
+    extract_and_cache_features,
+    fit_stage1_pca,
+    generate_sensitivity_plots,
+    load_feature_cache,
+    log_sensitivity_to_wandb,
+    run_2d_sensitivity_sweep,
+    save_feature_cache,
+)
+
+__all__ = [
+    "DEFAULT_ALPHA_GRID",
+    "DEFAULT_K_GRID",
+    "DEFAULT_RANDOM_SEEDS",
+    "build_weighted_features",
+    "evaluate_cil_trajectory",
+    "export_sweep_csv",
+    "extract_and_cache_features",
+    "fit_stage1_pca",
+    "generate_sensitivity_plots",
+    "load_feature_cache",
+    "log_sensitivity_to_wandb",
+    "run_2d_sensitivity_sweep",
+    "save_feature_cache",
+]

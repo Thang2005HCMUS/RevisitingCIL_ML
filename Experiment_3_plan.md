@@ -86,9 +86,9 @@ Không cần sửa đổi các file huấn luyện hiện tại, nhóm bổ sung
 
 ---
 
-## 5. Các Biểu đồ & Phát hiện Kỳ vọng (Đưa vào Slide Thuyết trình)
+## 5. Các Biểu đồ & Phát hiện Kỳ vọng
 
-Thực nghiệm 3 cung cấp 3 biểu đồ phân tích sâu sắc đóng vai trò điểm nhấn học thuật riêng của nhóm:
+Thực nghiệm 3 cung cấp 3 biểu đồ phân tích sâu đóng vai trò điểm nhấn học thuật riêng của nhóm:
 
 1. **Biểu đồ 1 — Đường cong Đánh đổi $\alpha$-Mixing ($\bar{\mathcal{A}}$ và $\mathcal{A}_B$ theo $\alpha \in [0, 1]$ ở $k=1536$):**
    * Làm rõ đường cong chữ U ngược (inverted U-curve): Tại hai đầu mút $\alpha = 0$ (chỉ dùng PTM) và $\alpha = 1$ (chỉ dùng Adapted), hiệu năng đều thấp hơn phần giữa, khẳng định sự cần thiết của cả hai yếu tố.

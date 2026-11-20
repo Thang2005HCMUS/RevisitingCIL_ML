@@ -172,18 +172,39 @@ Mở project trên W&B $\rightarrow$ tab **Runs (Table)** $\rightarrow$ chọn *
 
 - **Exp 2A (SimpleCIL‑Adapted)**:
   ```bash
-  !python main.py --config ./exps/exp2_submodules/imageneta_100_5_simplecil_adapted.json --wandb --tuned_epoch 2
+  !python main.py --config ./exps/exp2_submodules/imageneta_100_5_simplecil_adapted.json --wandb 
   ```
 - **Exp 2A (APER‑Finetune)**:
   ```bash
-  !python main.py --config ./exps/exp2_submodules/imageneta_100_5_aper_finetune.json --wandb --tuned_epoch 2
+  !python main.py --config ./exps/exp2_submodules/imageneta_100_5_aper_finetune.json --wandb 
   ```
-- **Exp 2B (cifar224‑10‑adapt‑stages)** (nếu có):
+- **Exp 2B (cifar224‑10‑adapt‑stages)**
   ```bash
-  !python main.py --config ./exps/exp2_submodules/cifar224_10_10_vit-b_adapter.json --wandb --tuned_epoch 2
+  for t in range(11):
+    !python main.py --config ./exps/exp2_adapt_stages/cifar224_10_10_vit-b_adapter.json --adapt_stages {t} --wandb
   ```
 
 Lưu ý: Tham số `--tuned_epoch` giúp chạy nhanh để kiểm tra; bỏ qua để dùng giá trị mặc định (`20`). Các file JSON đã được cập nhật với `backbone_lr`, `warmup_epochs`, `grad_clip` để tối ưu quá trình fine‑tune.
+
+### 6.1. Chạy Thực nghiệm 3: 2D Sensitivity Sweep (Alpha-Mixing & PCA Compression)
+
+Thực nghiệm 3 sử dụng entrypoint riêng `run_exp3_sensitivity.py` để cache đặc trưng hai nhánh sau Stage 0 và quét lưới 2 chiều $(\alpha, k)$ (`11 x 8 = 88` cấu hình):
+
+```bash
+# 1. CIFAR-224 (Small Domain Gap: B0 Inc5)
+!python run_exp3_sensitivity.py --config ./exps/exp3_analysis/sweep_cifar224_adapter.json --wandb
+
+# 2. ImageNet-R (Large Domain Gap: B0 Inc5)
+!python run_exp3_sensitivity.py --config ./exps/exp3_analysis/sweep_imagenetr_adapter.json --wandb
+
+# 3. CUB-200 (Fine-grained Domain: B0 Inc10)
+!python run_exp3_sensitivity.py --config ./exps/exp3_analysis/sweep_cub_adapter.json --wandb
+```
+
+Tùy chọn hữu ích:
+- `--cache_path <path>`: Đường dẫn lưu/nạp lại tensor đặc trưng sau Stage 0 (nếu file đã tồn tại, hệ thống bỏ qua bước adapt/forward để quét lại lưới ngay lập tức).
+- `--output_dir <dir>`: Thư mục xuất file CSV và 3 biểu đồ (`alpha_curve.png`, `pca_compression_curve.png`, `heatmap_alpha_k.png`).
+- **Dữ liệu đẩy lên W&B:** Bảng tổng hợp `exp3/sensitivity_table` (88 dòng), 3 biểu đồ (`exp3/alpha_curve`, `exp3/pca_compression_curve`, `exp3/heatmap_alpha_k`), tag tự động `backbone:<backbone_type>`, và các summary metrics tối ưu (`best_alpha`, `best_k`, `best_avg_acc`, `best_last_acc`).
 
 ---
 

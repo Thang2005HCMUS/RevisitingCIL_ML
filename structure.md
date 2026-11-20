@@ -4,6 +4,7 @@
 RevisitingCIL_ML/
 │
 ├── main.py                           # Entry point: setup_parser(), load_json(), main() -> train()
+├── run_exp3_sensitivity.py           # Entry point Exp 3: 2D alpha-mixing & Stage-1 PCA sensitivity sweep
 ├── download_model.py                 # Tải các pretrained backbones từ model.txt vào pretrained_models/
 ├── download_dataset.py               # Tải dataset từ dataset.txt (hỗ trợ GDrive/SharePoint, kiểm tra HTML lỗi)
 ├── extract_zip.py                    # Giải nén các file .zip theo cấu hình extract_zip.txt
@@ -20,7 +21,8 @@ RevisitingCIL_ML/
 │   ├── aper_vpt-deep/                # APER w/ VPT-Deep (7 datasets)
 │   ├── aper_ssf/                     # APER w/ SSF (7 datasets + nhánh resnet/)
 │   ├── aper_adapter/                 # APER w/ Adapter (7 datasets)
-│   └── aper_bn/                      # APER w/ BN Tuning cho ResNet18 (cifar224, omni)
+│   ├── aper_bn/                      # APER w/ BN Tuning cho ResNet18 (cifar224, omni)
+│   └── exp3_analysis/                # Cấu hình JSON quét lưới 2D (alpha, k) cho Exp 3 (cifar224, imagenetr, cub)
 │
 ├── configs/                          # Cấu hình YAML mẫu (simplecil_cifar100.yaml, aper_adapter_imagenetr.yaml)
 ├── experiments/                      # Thư mục lưu kết quả thực nghiệm
@@ -56,13 +58,17 @@ RevisitingCIL_ML/
 │   │   ├── learner.py                # train(), _train(), _init_wandb(), APERLearner
 │   │   └── evaluator.py              # evaluate(), _compute_metrics() (Top-1, Top-5, Old/New, Grouped)
 │   │
+│   ├── analysis/                     # Module phân tích mở rộng (Exp 3)
+│   │   └── sensitivity_sweep.py      # extract_and_cache_features(), run_2d_sensitivity_sweep(), vẽ biểu đồ & log W&B
+│   │
 │   └── utils/                        # Tiện ích phụ trợ
 │       ├── logger.py                 # setup_logger()
 │       └── metrics.py                # count_parameters(), tensor2numpy(), target2onehot()
 │
 └── tests/                            # Unit tests
     ├── test_models.py                # Kiểm tra kiến trúc/forward model
-    └── test_wandb_tracking.py        # Kiểm tra metric Table 1 & tích hợp W&B
+    ├── test_wandb_tracking.py        # Kiểm tra metric Table 1 & tích hợp W&B
+    └── test_exp3_sensitivity.py      # Kiểm tra Exp 3: alpha-mixing, caching, PCA SVD fallback, plots & W&B
 ```
 
 ---
@@ -77,6 +83,7 @@ RevisitingCIL_ML/
 | **Tuning Strategies** | `src/tuning/__init__.py`: `get_tuning_strategy()`<br>`FreezeStrategy`, `FinetuneStrategy`, `BNTuningStrategy`, `PromptStrategy`, `SSFStrategy`, `AdapterStrategy` | Chọn chiến lược theo `(convnet_type, model_name)` và bật `requires_grad` đúng nhóm tham số PET (hoặc reset BN stats với BN Tuning) trước khi thích ứng ở Task 0. |
 | **Learner & W&B** | `src/framework/learner.py`: `train()`, `_train()`, `_init_wandb()`, `_resolve_method_name()`, `APERLearner` | Điều phối vòng lặp $B$ task (`execute_task`, `_adapt_model`, `_update_prototypes`, `evaluate`), tính chỉ số Table 1 ($\bar{\mathcal{A}}$ `avg_acc`, $\mathcal{A}_B$ `last_acc`) và log lên W&B. |
 | **Evaluator** | `src/framework/evaluator.py`: `evaluate()`, `_compute_metrics()` | Tính `top1` ($\mathcal{A}_b$), `top5`, `old`, `new` và `grouped` accuracy trên các lớp đã học. |
+| **Exp 3 Sweep** | `run_exp3_sensitivity.py`<br>`src/analysis/sensitivity_sweep.py`: `extract_and_cache_features()`, `run_2d_sensitivity_sweep()`, `generate_sensitivity_plots()` | Cache đặc trưng hai nhánh sau Stage 0, quét lưới $(\alpha, k)$ với PCA / Random Subsampling, xuất CSV/PNG và đẩy bảng/biểu đồ lên W&B. |
 | **Download Guard** | `download_dataset.py`: `download_datasets()`, `is_html_error_file()` | Tải dữ liệu qua Google Drive/OneDrive và tự xóa file `.zip` giả nếu bị trả về trang HTML lỗi (hết quota). |
 
 ---

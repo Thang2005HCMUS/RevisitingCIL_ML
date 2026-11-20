@@ -1,123 +1,88 @@
 # RevisitingCIL_ML
 
-Repository tái hiện kết quả Table 1 cho `SimpleCIL` và các biến thể `APER` (`Finetune`, `VPT-Shallow`, `VPT-Deep`, `SSF`, `Adapter`, `BN`), tích hợp ghi log thực nghiệm lên Weights & Biases (`nnm-hcmus/Group7-ML-Lab`).
+Đồ án tái lập và mở rộng các thực nghiệm từ bài báo **"Revisiting Class-Incremental Learning with Pre-Trained Models: Generalizability and Adaptivity are All You Need"** (Da-Wei Zhou et al., IJCV 2024) trên nền tảng PyTorch và Weights & Biases (`nnm-hcmus/Group7-ML-Lab`).
+
+Thay vì chỉ chạy lại mã nguồn gốc từ [LAMDA-PILOT](https://github.com/LAMDA-CL/LAMDA-PILOT), nhóm xây dựng lại toàn bộ pipeline cho `SimpleCIL` và khung `APER` theo hướng tách bạch rõ từng thành phần (*Data*, *Backbone*, *Tuning Strategy*, *Dual-Branch Encoder*, *Cosine Prototype Classifier*), đồng bộ với hệ sinh thái `timm >= 1.0` trên Google Colab, đồng thời chạy đối chiếu song song với mã nguồn gốc để kiểm chứng từng cơ chế cốt lõi của bài báo.
 
 ---
 
-## Hướng dẫn chạy trên Google Colab (kèm W&B API Key)
+## Một số ghi nhận trong quá trình tái tạo
 
-### Bước 1: Bật GPU & Clone repository
+Trong quá trình viết lại và đối chiếu với bài báo, nhóm ghi nhận vài điểm đáng chú ý về mặt kỹ thuật lẫn lý thuyết:
 
-Trong Google Colab, chọn **Runtime → Change runtime type → T4 GPU** (hoặc L4/A100), sau đó chạy cell:
+- **Tính suy biến của APER về SimpleCIL:** Trong thiết kế hợp nhất hai nhánh `DualBranchEncoder`, ngay cả khi nhánh thích nghi không được cập nhật (trường hợp `SimpleCIL`), việc nối đôi vector $[\phi(x), \phi(x)]$ lên $1536$ chiều vẫn cho giá trị Cosine Similarity đồng nhất với không gian $768$ chiều gốc do tính bất biến tỉ lệ: $\cos([\phi(x), \phi(x)], [p_i, p_i]) = \cos(\phi(x), p_i)$. Điều này xác nhận trực tiếp nhận định ở cuối Mục 4.1 rằng `SimpleCIL` là cận dưới tự nhiên của `APER`.
+- **Khác biệt môi trường `timm`:** Code gốc phụ thuộc chặt vào `timm==0.6.12` (đặc biệt ở các đường dẫn nội bộ cho `PatchEmbed`, `DropPath` và `pretrained_cfg['url']` trong SSF/Adapter). Khi chuyển lên `timm >= 1.0`, nhóm đã viết lại cơ chế nạp trọng số chuẩn từ `timm.create_model` kết hợp lọc `state_dict` và quản lý rõ việc mở khóa tham số PET (`adaptmlp`, `ssf_scale`/`ssf_shift_`, `Prompt_Tokens`) thay vì để ngầm định trong lớp khởi tạo backbone.
+- **Độ nhạy của bước Adapt ở Task 0:** Cơ chế chỉ thích nghi một lần ở chặng đầu tiên giúp APER tránh quên thảm khốc và không làm lệch hệ quy chiếu giữa nguyên mẫu các lớp cũ và mới, nhưng cũng đặt ra câu hỏi thực tế về tỷ lệ ghép cứng $1:1$ khi độ lệch miền (domain gap) thay đổi — đây chính là động cơ cho Thực nghiệm 2 và 3 bên dưới.
 
-```python
-!git clone https://github.com/Thang2005HCMUS/RevisitingCIL_ML.git
-%cd RevisitingCIL_ML
-!pip -q install wandb timm easydict
+---
+
+## Cấu trúc dự án
+
+```text
+RevisitingCIL_ML/
+├── main.py                  # Điểm khởi chạy CLI (--config, --wandb, --merge_mode, --adapt_stages)
+├── exps/                    # Bộ file cấu hình JSON cho Table 1, ResNet và Thực nghiệm 2
+├── src/
+│   ├── data/                # Đọc 6 dataset và chia luồng nhiệm vụ CIL (ContinualTaskManager)
+│   ├── convs/               # Định nghĩa ViT tích hợp Adapter, SSF, VPT (tương thích timm >= 1.0)
+│   ├── models/              # Khởi tạo PTM, DualBranchEncoder và CosinePrototypeClassifier
+│   ├── tuning/              # Các chiến lược tinh chỉnh (Freeze, Finetune, VPT, SSF, Adapter, BN)
+│   ├── framework/           # APERLearner, Evaluator và tích hợp ghi log W&B
+│   └── utils/               # Đếm tham số và thiết lập file log
+├── tests/                   # Unit tests kiểm tra luồng model, merge_mode, adapt_stages và W&B
+├── structure.md             # Mô tả chi tiết cây thư mục, hàm quan trọng và luồng thực thi
+└── wandb.md                 # Hướng dẫn tạo tài khoản W&B, gắn API key trên Colab và chạy thí nghiệm
 ```
 
-### Bước 2: Nhét W&B API Key vào Colab
+- Chi tiết kiến trúc và danh sách hàm chính: xem [structure.md](structure.md).
+- Hướng dẫn thiết lập môi trường Colab, W&B API key và các câu lệnh chạy mẫu: xem [wandb.md](wandb.md).
 
-Lấy API key của bạn tại: <https://wandb.ai/authorize>
+---
 
-#### Cách A (Khuyên dùng — an toàn, không lộ key trong notebook): Dùng **Colab Secrets**
-1. Bấm biểu tượng **chìa khóa (Secrets)** ở thanh bên trái Colab.
-2. Tạo secret mới tên `WANDB_API_KEY`, dán key của bạn vào Value và bật toggle **Notebook access**.
-3. Chạy cell sau:
+## Mục tiêu các thực nghiệm
 
-```python
-import os
-import wandb
-from google.colab import userdata
+### Thực nghiệm 1 — Tái lập bảng kết quả chính (Table 1)
+Đánh giá 6 phương pháp (`SimpleCIL`, `APER w/ Finetune`, `APER w/ VPT-Shallow`, `APER w/ VPT-Deep`, `APER w/ SSF`, `APER w/ Adapter`) dùng chung backbone `ViT-B/16-IN21K` trên 7 bộ dữ liệu chuẩn (`CIFAR-100 B0 Inc5`, `CUB-200 B0 Inc10`, `ImageNet-R B0 Inc5`, `ImageNet-A B0 Inc10`, `ObjectNet B0 Inc10`, `OmniBenchmark B0 Inc30`, `VTAB B0 Inc10`). Nhóm chạy song song cả mã nguồn tự tái tạo và mã nguồn `LAMDA-PILOT` trên cùng một project W&B để đối chiếu hai chỉ số chính: độ chính xác trung bình qua các chặng ($\bar{\mathcal{A}}$) và độ chính xác ở chặng cuối ($\mathcal{A}_B$).
 
-os.environ["WANDB_API_KEY"] = userdata.get("WANDB_API_KEY")
-wandb.login(key=os.environ["WANDB_API_KEY"])
-```
+### Thực nghiệm 2 — Giải phẫu cơ chế của APER (Figure 5d & 5f)
+Gồm hai nhánh kiểm chứng bản chất hoạt động của APER (xem chi tiết thiết kế tại [Experiment_2_plan.md](Experiment_2_plan.md)):
+- **Nhánh 2A (Sub-module Ablation trên `ImageNet-A B100 Inc5`):** So sánh `SimpleCIL-PTM` ($768$d), `SimpleCIL-Adapted` ($768$d), `SimpleCIL-21K+1K` ($1536$d) và `APER w/ Finetune` ($1536$d) để kiểm chứng mức tăng độ chính xác đến từ sự bổ trợ giữa *Generalizability* và *Adaptivity*, không đơn thuần do tăng gấp đôi số chiều đặc trưng.
+- **Nhánh 2B (Adapting Stages trên `CIFAR-224 B0 Inc10`):** Khảo sát `APER w/ Adapter` khi cho phép thích nghi qua $T \in \{0, 1, \dots, 10\}$ chặng đầu tiên trong khi đóng băng trọng số phân loại của các lớp cũ, qua đó quan sát trực tiếp hiện tượng dịch chuyển không gian đặc trưng (feature drift) gây mất tương thích nguyên mẫu khi $T \ge 2$.
 
-#### Cách B (Nhanh — dán trực tiếp vào cell nếu dùng cá nhân):
+### Thực nghiệm 3 (Bổ sung) — Khảo sát độ nhạy hai chiều $(\alpha, k)$
+Thực nghiệm mở rộng do nhóm tự thiết kế (chi tiết tại [Experiment_3_plan.md](Experiment_3_plan.md)), mở rộng phép ghép cứng $1:1$ của APER thành pha trộn có trọng số $\Phi_\alpha(x) = [\sqrt{\alpha}\hat{\phi}^*(x), \sqrt{1-\alpha}\hat{\phi}(x)]$ với $\alpha \in [0, 1]$, kết hợp nén chiều bằng PCA xuống $k \in \{16, 32, \dots, 1536\}$ (đối chứng với Random Subsampling). Mục tiêu là khảo sát sự dịch chuyển của $\alpha^*$ theo mức độ domain gap (`CIFAR-100` vs `ImageNet-R` / `CUB-200`) và tìm đường biên Pareto giữa độ chính xác và dung lượng lưu trữ nguyên mẫu.
 
-```python
-import os
-import wandb
+---
 
-os.environ["WANDB_API_KEY"] = "DÁN_WANDB_API_KEY_CỦA_BẠN_VÀO_ĐÂY"
-wandb.login(key=os.environ["WANDB_API_KEY"])
-```
+## Phụ lục: Experiment Mapping Table
 
-> **Lưu ý:** Tránh commit notebook lên GitHub nếu bạn dùng Cách B (dán key trực tiếp trong cell).
+> Bảng ánh xạ giữa từng thực nghiệm, script/notebook tạo ra kết quả, link W&B của từng run theo 7 bộ dữ liệu và nhận xét ngắn về điều run đó cho thấy.  
+> *(Ghi chú định dạng ô dataset: điền `[W&B](<url>) (A_bar / A_B)` hoặc `N/A` nếu không chạy).*
 
-### Bước 3: Tải pretrained models và datasets
+### Bảng A — Thực nghiệm 1: So sánh mã nguồn tái tạo (Ours) và PILOT (Table 1, ViT-B/16-IN21K)
 
-```python
-!python download_model.py model.txt
-!python download_dataset.py dataset.txt
-!python extract_zip.py extract_zip.txt
-```
+| Phương pháp | Phiên bản | Script / Notebook | CIFAR-100 (`B0 Inc5`) | CUB-200 (`B0 Inc10`) | ImageNet-R (`B0 Inc5`) | ImageNet-A (`B0 Inc10`) | ObjectNet (`B0 Inc10`) | OmniBench (`B0 Inc30`) | VTAB (`B0 Inc10`) | Nhận xét chính (What the run shows) |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **SimpleCIL** | Ours | `main.py` (`exps/simplecil/*`) | [W&B]() | [W&B]() | [W&B]() | [W&B]() | — | [W&B]() | [W&B]() | *(Điền nhận xét ngắn)* |
+| **SimpleCIL** | PILOT | `PILOT` (`exps/simplecil.json`) | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | *(Điền nhận xét ngắn)* |
+| **APER w/ Finetune** | Ours | `main.py` (`exps/aper_finetune/*`) | [W&B]() | [W&B]() | [W&B]() | [W&B]() | — | [W&B]() | [W&B]() | *(Điền nhận xét ngắn)* |
+| **APER w/ Finetune** | PILOT | `PILOT` (`exps/aper_finetune.json`) | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | *(Điền nhận xét ngắn)* |
+| **APER w/ VPT-Shallow** | Ours | `main.py` (`exps/aper_vpt-shallow/*`) | [W&B]() | [W&B]() | [W&B]() | [W&B]() | — | [W&B]() | [W&B]() | *(Điền nhận xét ngắn)* |
+| **APER w/ VPT-Shallow** | PILOT | `PILOT` (`exps/aper_vpt.json`) | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | *(Điền nhận xét ngắn)* |
+| **APER w/ VPT-Deep** | Ours | `main.py` (`exps/aper_vpt-deep/*`) | [W&B]() | [W&B]() | [W&B]() | [W&B]() | — | [W&B]() | [W&B]() | *(Điền nhận xét ngắn)* |
+| **APER w/ VPT-Deep** | PILOT | `PILOT` (`exps/aper_vpt.json`) | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | *(Điền nhận xét ngắn)* |
+| **APER w/ SSF** | Ours | `main.py` (`exps/aper_ssf/*`) | [W&B]() | [W&B]() | [W&B]() | [W&B]() | — | [W&B]() | [W&B]() | *(Điền nhận xét ngắn)* |
+| **APER w/ SSF** | PILOT | `PILOT` (`exps/aper_ssf.json`) | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | *(Điền nhận xét ngắn)* |
+| **APER w/ Adapter** | Ours | `main.py` (`exps/aper_adapter/*`) | [W&B]() | [W&B]() | [W&B]() | [W&B]() | — | [W&B]() | [W&B]() | *(Điền nhận xét ngắn)* |
+| **APER w/ Adapter** | PILOT | `PILOT` (`exps/aper_adapter.json`) | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | [W&B]() | *(Điền nhận xét ngắn)* |
 
-*(Nếu chỉ chạy một dataset cụ thể như CIFAR-100 hoặc ImageNet-R, có thể giải nén riêng file tương ứng trong `./data/`.)*
+### Bảng B — Thực nghiệm 2 & 3 (Ablation & Phân tích mở rộng)
 
-### Bước 4: Chạy thí nghiệm và log lên W&B (`nnm-hcmus/Group7-ML-Lab`)
-
-Thêm cờ `--wandb` khi gọi `main.py` (mặc định sẽ log vào entity `nnm-hcmus` và project `Group7-ML-Lab`):
-
-```bash
-# SimpleCIL (CIFAR-224 B0 Inc5)
-!python main.py --config ./exps/simplecil/cifar224_5_5_vit-b_simplecil.json --wandb
-
-# APER Finetune (CUB-200 B0 Inc10)
-!python main.py --config ./exps/aper_finetune/cub_10_10_vit-b_finetune.json --wandb
-
-# APER VPT-Shallow & VPT-Deep (tự phân biệt method_name: aper_vpt-shallow vs aper_vpt-deep)
-!python main.py --config ./exps/aper_vpt-shallow/cifar224_5_5_vit-b_vpt-shallow.json --wandb
-!python main.py --config ./exps/aper_vpt-deep/cifar224_5_5_vit-b_vpt-deep.json --wandb
-
-# APER SSF / Adapter / BN
-!python main.py --config ./exps/aper_ssf/cifar224_5_5_vit-b_ssf.json --wandb
-!python main.py --config ./exps/aper_adapter/cifar224_5_5_vit-b_adapter.json --wandb
-!python main.py --config ./exps/aper_bn/cifar224_5_5_resnet18_bn.json --wandb
-```
-
-### Bước 5: Chạy Thực nghiệm 2 (Figure 5d & Figure 5f) trên Colab
-
-#### Nhánh 2A — Giải phẫu thành phần (`ImageNet-A B100 Inc5`, Figure 5d)
-
-```bash
-# 1. SimpleCIL-PTM (chỉ dùng nhánh PTM IN21K đóng băng, 768-d)
-!python main.py --config ./exps/exp2_submodules/imageneta_100_5_simplecil_ptm.json --wandb
-
-# 2. SimpleCIL-Adapted (chỉ dùng nhánh đã finetune, 768-d)
-!python main.py --config ./exps/exp2_submodules/imageneta_100_5_simplecil_adapted.json --wandb
-
-# 3. SimpleCIL-21K+1K (ghép 2 nhánh PTM IN21K + IN1K đóng băng, 1536-d)
-!python main.py --config ./exps/exp2_submodules/imageneta_100_5_simplecil_21k_1k.json --wandb
-
-# 4. APER w/ Finetune (hợp nhất nhánh Adapted + PTM IN21K, 1536-d)
-!python main.py --config ./exps/exp2_submodules/imageneta_100_5_aper_finetune.json --wandb
-```
-
-#### Nhánh 2B — Khảo sát số chặng thích nghi (`CIFAR-224 B0 Inc10`, Figure 5f)
-
-Sử dụng một file cấu hình duy nhất kết hợp cờ `--adapt_stages T` với $T \in \{0, 1, \dots, 10\}$:
-
-```bash
-# Adapt-0 (SimpleCIL, không tinh chỉnh)
-!python main.py --config ./exps/exp2_adapt_stages/cifar224_10_10_vit-b_adapter.json --adapt_stages 0 --wandb
-
-# Adapt-1 (APER w/ Adapter tiêu chuẩn)
-!python main.py --config ./exps/exp2_adapt_stages/cifar224_10_10_vit-b_adapter.json --adapt_stages 1 --wandb
-
-# Adapt-2..10 (ví dụ Adapt-3 và Adapt-10)
-!python main.py --config ./exps/exp2_adapt_stages/cifar224_10_10_vit-b_adapter.json --adapt_stages 3 --wandb
-!python main.py --config ./exps/exp2_adapt_stages/cifar224_10_10_vit-b_adapter.json --adapt_stages 10 --wandb
-```
-
-### Tùy chọn CLI bổ sung
-
-- `--merge_mode <mode>`: Chọn chế độ hợp nhất đặc trưng (`both`, `adapted_only`, `ptm_only`, `dual_ptm`), ghi đè giá trị trong JSON.
-- `--adapt_stages <T>`: Số chặng đầu tiên cho phép thích nghi (`0` để bỏ qua bước Adapt; mặc định `1`), ghi đè giá trị trong JSON.
-- `--wandb_entity <entity>`: Đổi W&B entity (mặc định: `nnm-hcmus`).
-- `--wandb_project <project>`: Đổi W&B project (mặc định: `Group7-ML-Lab`).
-- `--wandb_group <group>`: Đặt tên group tùy chỉnh (mặc định: `<dataset>_init<init_cls>_inc<increment>`).
-- `--wandb_name <name>`: Đặt tên run tùy chỉnh (mặc định: `<method_name>_<dataset>_B<init_cls>_Inc<increment>_seed<seed>`).
-- `--wandb_tags <tag1> [<tag2> ...]`: Gắn thêm tag lên W&B (hệ thống luôn tự động gắn sẵn `backbone:<backbone_type>` và lưu cột `backbone_type` trong W&B config thay cho `convnet_type`).
-- Chạy **không** truyền `--wandb`: Pipeline vẫn chạy đầy đủ và in chỉ số Table 1 (`avg_acc`, `last_acc`) ra console/file log mà không import hay gọi `wandb`.
+| Thực nghiệm | Cấu hình / Biến thể | Script / Notebook | Link W&B | Nhận xét chính (What the run shows) |
+| :--- | :--- | :--- | :---: | :--- |
+| **Exp 2A** | `SimpleCIL-PTM` (`IN-A B100 Inc5`) | `main.py --config exps/exp2_submodules/imageneta_100_5_simplecil_ptm.json` | [W&B]() | *(Điền nhận xét ngắn)* |
+| **Exp 2A** | `SimpleCIL-Adapted` (`IN-A B100 Inc5`) | `main.py --config exps/exp2_submodules/imageneta_100_5_simplecil_adapted.json` | [W&B]() | *(Điền nhận xét ngắn)* |
+| **Exp 2A** | `SimpleCIL-21K+1K` (`IN-A B100 Inc5`) | `main.py --config exps/exp2_submodules/imageneta_100_5_simplecil_21k_1k.json` | [W&B]() | *(Điền nhận xét ngắn)* |
+| **Exp 2A** | `APER w/ Finetune` (`IN-A B100 Inc5`) | `main.py --config exps/exp2_submodules/imageneta_100_5_aper_finetune.json` | [W&B]() | *(Điền nhận xét ngắn)* |
+| **Exp 2B** | `Adapt-0` $\rightarrow$ `Adapt-10` (`CIFAR-224 B0 Inc10`) | `main.py --config exps/exp2_adapt_stages/cifar224_10_10_vit-b_adapter.json --adapt_stages T` | [W&B Group]() | *(Điền nhận xét ngắn)* |
+| **Exp 3** | 2D Sweep $(\alpha, k)$ (`CIFAR-224` & `ImageNet-R` / `CUB-200`) | *(Điền script/notebook thực nghiệm 3)* | [W&B]() | *(Điền nhận xét ngắn)* |

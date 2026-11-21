@@ -15,7 +15,6 @@ class PromptStrategy(TuningStrategy):
     def prepare_adapted_model(self, backbone: nn.Module) -> nn.Module:
         """
         Đóng băng toàn bộ tham số của mô hình gốc và chỉ mở khóa các Prompt_Tokens.
-       [cite: 3]
         """
         # Nếu backbone có sẵn hàm Freeze() (như trong class VPT_ViT gốc của tác giả), ta có thể gọi nó.
         # Tuy nhiên, để đảm bảo tính nhất quán của Strategy Pattern, ta quét qua named_parameters.
@@ -26,7 +25,7 @@ class PromptStrategy(TuningStrategy):
             else:
                 param.requires_grad = False
                 
-        # Kiểm tra và log số lượng tham số huấn luyện[cite: 3]
+        # Kiểm tra và log số lượng tham số huấn luyện
         total_params = sum(p.numel() for p in backbone.parameters())
         trainable_params = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
         logging.info(f"VPT Strategy: Total params: {total_params:,} | Trainable params: {trainable_params:,}")

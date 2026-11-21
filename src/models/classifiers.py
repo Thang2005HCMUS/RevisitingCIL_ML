@@ -15,7 +15,7 @@ class CosinePrototypeClassifier(nn.Module):
         # Khởi tạo tensor rỗng cho trọng số (weights), sẽ được thêm dần qua các Task
         self.weight = nn.Parameter(torch.Tensor(0, in_features), requires_grad=False)
         
-        # Hệ số scale (Sigma) để tối ưu logits cho Softmax (Tương tự CosineLinear trong code gốc)[cite: 3]
+        # Hệ số scale (Sigma) để tối ưu logits cho Softmax (Tương tự CosineLinear trong code gốc)
         self.sigma = nn.Parameter(torch.Tensor(1))
         self.sigma.data.fill_(1.0)
         
@@ -23,7 +23,6 @@ class CosinePrototypeClassifier(nn.Module):
         """
         Nối thêm các prototype (tâm cụm) của các lớp mới vào ma trận trọng số.
         new_prototypes: Tensor có kích thước [num_new_classes, in_features]
-       
         """
         device = self.weight.device
         new_prototypes = new_prototypes.to(device)
@@ -37,7 +36,6 @@ class CosinePrototypeClassifier(nn.Module):
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         """
         Tính toán normalized cosine similarity: (w / ||w||) * (f / ||f||).
-       [cite: 23]
         """
         # Chuẩn hóa (L2 Normalize) đặc trưng đầu vào và trọng số prototype
         norm_features = F.normalize(features, p=2, dim=1)
@@ -46,7 +44,7 @@ class CosinePrototypeClassifier(nn.Module):
         # Tính Cosine Similarity thông qua phép nhân ma trận
         logits = F.linear(norm_features, norm_weight)
         
-        # Nhân với hằng số scale sigma[cite: 3]
+        # Nhân với hằng số scale sigma
         if self.sigma is not None:
             logits = self.sigma * logits
             

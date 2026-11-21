@@ -6,8 +6,6 @@ import sys
 # Thêm thư mục 'src' vào đường dẫn hệ thống để import các module theo cấu trúc mới
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 
-# Dựa trên cấu trúc mới, luồng huấn luyện sẽ được chuyển vào src/framework/
-# Bạn có thể import hàm khởi chạy (ví dụ: train) từ framework thay vì trainer.py như code gốc
 from framework.learner import train 
 
 def load_json(settings_path):
@@ -22,8 +20,7 @@ def load_json(settings_path):
 def setup_parser():
     """Thiết lập các tham số dòng lệnh"""
     parser = argparse.ArgumentParser(description='Reproduce of APER and multiple continual learning algorithms.')
-    # Trỏ mặc định về thư mục configs/ theo cấu trúc mới
-    parser.add_argument('--config', type=str, default='./configs/simplecil_cifar100.json',
+    parser.add_argument('--config', type=str, default='./exps/simplecil/cifar224_5_5_vit-b_simplecil.json',
                         help='Json file of settings.')
     parser.add_argument('--wandb', action='store_true',
                         help='Enable Weights & Biases experiment tracking.')

@@ -8,13 +8,13 @@ RevisitingCIL_ML/
 ├── download_model.py                 # Tải các pretrained backbones từ model.txt vào pretrained_models/
 ├── download_dataset.py               # Tải dataset từ dataset.txt (hỗ trợ GDrive/SharePoint, kiểm tra HTML lỗi)
 ├── extract_zip.py                    # Giải nén các file .zip theo cấu hình extract_zip.txt
-├── dataset.txt / full_dataset.txt    # Danh sách URL tải datasets (CUB, IN-R, IN-A, OmniBenchmark, VTAB, ObjectNet)
+├── dataset.txt                       # Danh sách URL tải datasets (CUB, IN-R, IN-A, OmniBenchmark, VTAB, ObjectNet)
 ├── extract_zip.txt / model.txt       # Danh sách file nén và URL pretrained weights
 ├── SimpleCIL.ipynb                   # Notebook chạy thực nghiệm trên Google Colab
-├── README.md                         # Hướng dẫn cài đặt, W&B API key và chạy lệnh trên Colab
-├── requirements.txt / setup.py
+├── README.md / wandb.md              # Tổng quan dự án, bảng mapping thực nghiệm và hướng dẫn W&B/Colab
+├── requirements.txt                  # Danh sách thư viện phụ thuộc Python
 │
-├── exps/                             # Cấu hình JSON chuẩn cho các thí nghiệm Table 1 & ResNet
+├── exps/                             # Cấu hình JSON chuẩn cho các thí nghiệm Table 1, Exp 2 & Exp 3
 │   ├── simplecil/                    # Baseline đóng băng hoàn toàn (7 datasets)
 │   ├── aper_finetune/                # APER w/ Finetune (7 datasets)
 │   ├── aper_vpt-shallow/             # APER w/ VPT-Shallow (7 datasets)
@@ -22,10 +22,11 @@ RevisitingCIL_ML/
 │   ├── aper_ssf/                     # APER w/ SSF (7 datasets + nhánh resnet/)
 │   ├── aper_adapter/                 # APER w/ Adapter (7 datasets)
 │   ├── aper_bn/                      # APER w/ BN Tuning cho ResNet18 (cifar224, omni)
+│   ├── exp2_submodules/              # Cấu hình nhánh 2A (ImageNet-A B100 Inc5)
+│   ├── exp2_adapt_stages/            # Cấu hình nhánh 2B (CIFAR-224 B0 Inc10)
 │   └── exp3_analysis/                # Cấu hình JSON quét lưới 2D (alpha, k) cho Exp 3 (cifar224, imagenetr, cub)
 │
-├── configs/                          # Cấu hình YAML mẫu (simplecil_cifar100.yaml, aper_adapter_imagenetr.yaml)
-├── experiments/                      # Thư mục lưu kết quả thực nghiệm
+├── experiments/                      # Thư mục lưu kết quả thực nghiệm (artifacts/logs)
 │
 ├── src/                              # Mã nguồn chính
 │   ├── data/                         # Quản lý dữ liệu & phân chia CIL tasks
@@ -35,14 +36,12 @@ RevisitingCIL_ML/
 │   ├── convs/                        # Định nghĩa kiến trúc backbone tích hợp PET (tương thích timm >= 1.0)
 │   │   ├── vision_transformer_adapter.py  # ViT + AdaptMLP (vit_base_patch16_224[_in21k]_adapter)
 │   │   ├── vision_transformer_ssf.py      # ViT + Scale & Shift (_create_vision_transformer)
-│   │   ├── vpt.py                         # ViT + Visual Prompt Tuning (build_promptmodel)
-│   │   ├── new_adapter.py / new_ssf.py    # Bản viết lại cấu trúc Adapter & SSF
-│   │   └── *.txt                          # Mã tham chiếu kiến trúc ResNet/linears gốc
+│   │   └── vpt.py                         # ViT + Visual Prompt Tuning (build_promptmodel)
 │   │
 │   ├── models/                       # Khởi tạo backbone, hợp nhất nhánh & bộ phân loại
 │   │   ├── backbones.py              # get_pretrained_model(), SSFHeadWrapper (ResNet SSF)
 │   │   ├── classifiers.py            # CosinePrototypeClassifier: register_prototypes(), forward()
-│   │   └── merged_encoder.py         # DualBranchEncoder: ghép đặc trưng [phi*(x), phi(x)]
+│   │   └── merged_encoder.py         # DualBranchEncoder: ghép đặc trưng [phi*(x), phi(x)] (merge_mode, alpha, projector)
 │   │
 │   ├── tuning/                       # Strategy Pattern cho các kỹ thuật tinh chỉnh (PET)
 │   │   ├── __init__.py               # Factory get_tuning_strategy(convnet_type, model_name)
@@ -62,7 +61,6 @@ RevisitingCIL_ML/
 │   │   └── sensitivity_sweep.py      # extract_and_cache_features(), run_2d_sensitivity_sweep(), vẽ biểu đồ & log W&B
 │   │
 │   └── utils/                        # Tiện ích phụ trợ
-│       ├── logger.py                 # setup_logger()
 │       └── metrics.py                # count_parameters(), tensor2numpy(), target2onehot()
 │
 └── tests/                            # Unit tests

@@ -11,7 +11,6 @@ class ContinualDataset(Dataset):
     """
     Lớp Wrapper chuẩn hóa dataset cho PyTorch DataLoader.
     Thay thế cho lớp 'DummyDataset' trong code gốc của tác giả.
-  [cite: 7]
     """
     def __init__(self, images, labels, trsf, use_path=False):
         assert len(images) == len(labels), "Số lượng ảnh và nhãn không khớp!"
@@ -45,7 +44,6 @@ class ContinualDataset(Dataset):
 def build_transform(is_train: bool, input_size: int = 224):
     """
     Tạo bộ Augmentation chuẩn cho các dataset kích thước lớn như ImageNet-R, CUB.
-  [cite: 8]
     """
     if is_train:
         return transforms.Compose([
@@ -62,7 +60,7 @@ def build_transform(is_train: bool, input_size: int = 224):
         ])
 
 def split_images_labels(imgs):
-    """Tách đường dẫn ảnh và nhãn từ torchvision.datasets.ImageFolder[cite: 6]."""
+    """Tách đường dẫn ảnh và nhãn từ torchvision.datasets.ImageFolder."""
     images = [item[0] for item in imgs]
     labels = [item[1] for item in imgs]
     return np.array(images), np.array(labels)
@@ -85,7 +83,7 @@ class CIFAR100Data(BaseData):
     use_path = False
     class_order = np.arange(100).tolist()
     
-    # Định nghĩa cứng transform cho ảnh nhỏ (32x32) của CIFAR[cite: 8]
+    # Định nghĩa cứng transform cho ảnh nhỏ (32x32) của CIFAR
     train_trsf = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
@@ -225,12 +223,11 @@ def get_dataset(dataset_name: str) -> BaseData:
         return ImageNetAData()
     elif name == "cub":
         return CUBData()
-    elif name == "cifar224":  # <--- Thêm dòng này ở đây
+    elif name == "cifar224":
         return CIFAR224Data()
     elif name == "omnibenchmark":
         return OMNIData()
     elif name == "vtab":
         return VtabData()
-    # Bạn có thể bổ sung ObjectNet, OmniBenchmark, ImageNet-A tại đây nếu cần[cite: 8].
     else:
         raise NotImplementedError(f"Dataset '{dataset_name}' chưa được hỗ trợ.")

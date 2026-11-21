@@ -20,16 +20,18 @@ Trong quá trình viết lại và đối chiếu với bài báo, nhóm ghi nh�
 
 ```text
 RevisitingCIL_ML/
-├── main.py                  # Điểm khởi chạy CLI (--config, --wandb, --merge_mode, --adapt_stages)
-├── exps/                    # Bộ file cấu hình JSON cho Table 1, ResNet và Thực nghiệm 2
+├── main.py                  # Điểm khởi chạy Exp 1 & 2 (--config, --wandb, --merge_mode, --adapt_stages)
+├── run_exp3_sensitivity.py  # Điểm khởi chạy Exp 3 (2D sensitivity sweep alpha x k)
+├── exps/                    # Bộ file cấu hình JSON cho Table 1, ResNet, Thực nghiệm 2 & 3
 ├── src/
 │   ├── data/                # Đọc 6 dataset và chia luồng nhiệm vụ CIL (ContinualTaskManager)
 │   ├── convs/               # Định nghĩa ViT tích hợp Adapter, SSF, VPT (tương thích timm >= 1.0)
 │   ├── models/              # Khởi tạo PTM, DualBranchEncoder và CosinePrototypeClassifier
 │   ├── tuning/              # Các chiến lược tinh chỉnh (Freeze, Finetune, VPT, SSF, Adapter, BN)
 │   ├── framework/           # APERLearner, Evaluator và tích hợp ghi log W&B
-│   └── utils/               # Đếm tham số và thiết lập file log
-├── tests/                   # Unit tests kiểm tra luồng model, merge_mode, adapt_stages và W&B
+│   ├── analysis/            # Phân tích mở rộng Exp 3 (caching, 2D sweep, PCA, xuất biểu đồ & W&B)
+│   └── utils/               # Đếm tham số và chuyển đổi tensor
+├── tests/                   # Unit tests kiểm tra luồng model, Exp 2, Exp 3 và W&B
 ├── structure.md             # Mô tả chi tiết cây thư mục, hàm quan trọng và luồng thực thi
 └── wandb.md                 # Hướng dẫn tạo tài khoản W&B, gắn API key trên Colab và chạy thí nghiệm
 ```
@@ -85,4 +87,4 @@ Thực nghiệm mở rộng do nhóm tự thiết kế (chi tiết tại [Experi
 | **Exp 2A** | `SimpleCIL-21K+1K` (`IN-A B100 Inc5`) | `main.py --config exps/exp2_submodules/imageneta_100_5_simplecil_21k_1k.json` | [W&B]() | *(Điền nhận xét ngắn)* |
 | **Exp 2A** | `APER w/ Finetune` (`IN-A B100 Inc5`) | `main.py --config exps/exp2_submodules/imageneta_100_5_aper_finetune.json` | [W&B]() | *(Điền nhận xét ngắn)* |
 | **Exp 2B** | `Adapt-0` $\rightarrow$ `Adapt-10` (`CIFAR-224 B0 Inc10`) | `main.py --config exps/exp2_adapt_stages/cifar224_10_10_vit-b_adapter.json --adapt_stages T` | [W&B Group]() | *(Điền nhận xét ngắn)* |
-| **Exp 3** | 2D Sweep $(\alpha, k)$ (`CIFAR-224` & `ImageNet-R` / `CUB-200`) | *(Điền script/notebook thực nghiệm 3)* | [W&B]() | *(Điền nhận xét ngắn)* |
+| **Exp 3** | 2D Sweep $(\alpha, k)$ (`CIFAR-224` & `ImageNet-R` / `CUB-200`) | `run_exp3_sensitivity.py --config exps/exp3_analysis/sweep_<dataset>_adapter.json` | [W&B]() | *(Điền nhận xét ngắn)* |

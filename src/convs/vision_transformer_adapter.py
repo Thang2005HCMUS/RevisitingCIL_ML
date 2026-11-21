@@ -1,29 +1,19 @@
 # --------------------------------------------------------
 # References:
 # https://github.com/jxhe/unify-parameter-efficient-tuning
-# --------------------------------------------------------
-
-import math
-import torch
-import torch.nn as nn
-from timm.layers import DropPath, PatchEmbed
-# --------------------------------------------------------
-# References:
 # timm: https://github.com/rwightman/pytorch-image-models/tree/master/timm
 # DeiT: https://github.com/facebookresearch/deit
 # MAE: https://github.com/facebookresearch/mae
 # --------------------------------------------------------
-import timm
-from functools import partial
+
 from collections import OrderedDict
+from functools import partial
+import math
+
+import timm
+from timm.layers import DropPath, PatchEmbed
 import torch
 import torch.nn as nn
-from timm.models import register_model
-
-import logging
-import os
-from collections import OrderedDict
-import torch
 
 
 
@@ -316,49 +306,11 @@ class VisionTransformer(nn.Module):
         return x
 
 
-# def vit_base_patch16(**kwargs):
-#     model = VisionTransformer(
-#         patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True,
-#         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-#     return model
-
-
-# def vit_large_patch16(**kwargs):
-#     model = VisionTransformer(
-#         patch_size=16, embed_dim=1024, depth=24, num_heads=16, mlp_ratio=4, qkv_bias=True,
-#         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-#     return model
-
-
-# def vit_huge_patch14(**kwargs):
-#     model = VisionTransformer(
-#         patch_size=14, embed_dim=1280, depth=32, num_heads=16, mlp_ratio=4, qkv_bias=True,
-#         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-#     return model
-
-
-# def _create_vision_transformer(variant, pretrained=False, **kwargs):
-#     if kwargs.get('features_only', None):
-#         raise RuntimeError('features_only not implemented for Vision Transformer models.')
-
-#     pretrained_cfg = resolve_pretrained_cfg(variant, pretrained_cfg=kwargs.pop('pretrained_cfg', None))
-#     model = build_model_with_cfg(
-#         VisionTransformer, variant, pretrained,
-#         pretrained_cfg=pretrained_cfg,
-#         pretrained_filter_fn=checkpoint_filter_fn,
-#         pretrained_custom_load='npz' in pretrained_cfg['url'],
-#         **kwargs)
-#     return model
-
-
-
-
 def vit_base_patch16_224_adapter(pretrained=False, **kwargs):
     
     model = VisionTransformer(patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
 
-    # checkpoint_model = torch.load('./pretrained_models/B_16-i21k-300ep-lr_0.001-aug_medium1-wd_0.1-do_0.0-sd_0.0.npz')
     checkpoint_model=timm.create_model("vit_base_patch16_224", pretrained=True, num_classes=0)
     state_dict = checkpoint_model.state_dict()
     # modify the checkpoint state dict to match the model
@@ -389,17 +341,6 @@ def vit_base_patch16_224_adapter(pretrained=False, **kwargs):
     msg = model.load_state_dict(state_dict, strict=False)
     print(msg)
 
-    # s=model.state_dict()
-    # # print the keys in s
-    # for key in s.keys():
-    #     print(key)
-    # # print the keys in checkpoint_model
-    # for key in state_dict.keys():
-    #     if key in s.keys():
-    #         print(key, 'yes')
-    #     else:
-    #         print(key, 'NOOOOOOOOOOOOOOOOOOO')
-
     # freeze all but the adapter
     for name, p in model.named_parameters():
         if name in msg.missing_keys:
@@ -415,7 +356,6 @@ def vit_base_patch16_224_in21k_adapter(pretrained=False, **kwargs):
     model = VisionTransformer(patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
 
-    # checkpoint_model = torch.load('./pretrained_models/B_16-i21k-300ep-lr_0.001-aug_medium1-wd_0.1-do_0.0-sd_0.0.npz')
     checkpoint_model=timm.create_model("vit_base_patch16_224_in21k", pretrained=True, num_classes=0)
     state_dict = checkpoint_model.state_dict()
     # modify the checkpoint state dict to match the model
@@ -445,17 +385,6 @@ def vit_base_patch16_224_in21k_adapter(pretrained=False, **kwargs):
 
     msg = model.load_state_dict(state_dict, strict=False)
     print(msg)
-
-    # s=model.state_dict()
-    # # print the keys in s
-    # for key in s.keys():
-    #     print(key)
-    # # print the keys in checkpoint_model
-    # for key in state_dict.keys():
-    #     if key in s.keys():
-    #         print(key, 'yes')
-    #     else:
-    #         print(key, 'NOOOOOOOOOOOOOOOOOOO')
 
     # freeze all but the adapter
     for name, p in model.named_parameters():

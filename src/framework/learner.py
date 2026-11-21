@@ -479,7 +479,6 @@ class APERLearner:
         """
         Trích xuất trung bình đặc trưng (Prototype) của task hiện tại để thay thế classifier.
         Thay thế cho hàm `replace_fc` trong code gốc.
-       [cite: 1, 2, 3]
         """
         logging.info(f"Đang trích xuất Prototype (tâm cụm) cho {len(class_ids)} lớp mới...")
         self.encoder.eval()
@@ -492,7 +491,7 @@ class APERLearner:
             for _, inputs, targets in proto_loader:
                 inputs = inputs.to(self.device)
                 
-                # Đi qua nhánh kép [phi*(x), phi(x)][cite: 6]
+                # Đi qua nhánh kép [phi*(x), phi(x)]
                 features = self.encoder(inputs) 
                 
                 features_list.append(features.cpu())

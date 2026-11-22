@@ -139,6 +139,22 @@ class VtabData(BaseData):
         
         self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
         self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
+class ObjectNetData(BaseData):
+    use_path = True
+    class_order = np.arange(200).tolist()
+    
+    train_trsf = build_transform(is_train=True)
+    test_trsf = build_transform(is_train=False)
+
+    def download_data(self):
+        train_dir = "./data/objectnet/dev/shm/objectnet_256/train/"
+        test_dir = "./data/objectnet/dev/shm/objectnet_256/test/"
+        
+        train_dset = datasets.ImageFolder(train_dir)
+        test_dset = datasets.ImageFolder(test_dir)
+        
+        self.train_data, self.train_targets = split_images_labels(train_dset.imgs)
+        self.test_data, self.test_targets = split_images_labels(test_dset.imgs)
 
 class ImageNetAData(BaseData):
     use_path = True
@@ -229,5 +245,7 @@ def get_dataset(dataset_name: str) -> BaseData:
         return OMNIData()
     elif name == "vtab":
         return VtabData()
+    elif name == "objectnet":
+        return ObjectNetData()
     else:
         raise NotImplementedError(f"Dataset '{dataset_name}' chưa được hỗ trợ.")

@@ -6,8 +6,6 @@ import sys
 # Thêm thư mục 'src' vào đường dẫn hệ thống để import các module theo cấu trúc mới
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 
-# Dựa trên cấu trúc mới, luồng huấn luyện sẽ được chuyển vào src/framework/
-# Bạn có thể import hàm khởi chạy (ví dụ: train) từ framework thay vì trainer.py như code gốc
 from framework.learner import train 
 
 def load_json(settings_path):
@@ -22,8 +20,7 @@ def load_json(settings_path):
 def setup_parser():
     """Thiết lập các tham số dòng lệnh"""
     parser = argparse.ArgumentParser(description='Reproduce of APER and multiple continual learning algorithms.')
-    # Trỏ mặc định về thư mục configs/ theo cấu trúc mới
-    parser.add_argument('--config', type=str, default='./configs/simplecil_cifar100.json',
+    parser.add_argument('--config', type=str, default='./exps/simplecil/cifar224_5_5_vit-b_simplecil.json',
                         help='Json file of settings.')
     parser.add_argument('--wandb', action='store_true',
                         help='Enable Weights & Biases experiment tracking.')
@@ -42,6 +39,8 @@ def setup_parser():
                         help='Feature merge mode for DualBranchEncoder.')
     parser.add_argument('--adapt_stages', type=int, default=None,
                         help='Number of initial stages to adapt (0 skips adaptation).')
+    parser.add_argument('--tuned_epoch', type=int, default=None,
+                        help='Override number of adaptation epochs.')
     return parser
 
 def main():
@@ -55,7 +54,7 @@ def main():
     cli_args = vars(args)
     args_dict = {
         k: v for k, v in cli_args.items()
-        if k not in ('merge_mode', 'adapt_stages', 'wandb_tags') or v is not None
+        if k not in ('merge_mode', 'adapt_stages', 'wandb_tags', 'tuned_epoch') or v is not None
     }
     args_dict.update(param)
     if cli_args.get('wandb'):
@@ -70,6 +69,8 @@ def main():
         args_dict['merge_mode'] = cli_args['merge_mode']
     if cli_args.get('adapt_stages') is not None:
         args_dict['adapt_stages'] = cli_args['adapt_stages']
+    if cli_args.get('tuned_epoch') is not None:
+        args_dict['tuned_epoch'] = cli_args['tuned_epoch']
     if 'convnet_type' not in args_dict and args_dict.get('backbone_type'):
         args_dict['convnet_type'] = args_dict['backbone_type']
     args_dict['use_wandb'] = bool(args_dict.get('wandb') or args_dict.get('use_wandb'))

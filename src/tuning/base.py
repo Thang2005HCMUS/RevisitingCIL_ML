@@ -4,7 +4,6 @@ import torch.nn as nn
 class TuningStrategy(ABC):
     """
     Lớp trừu tượng định nghĩa giao diện chung cho mọi kỹ thuật tinh chỉnh (PET).
-   [cite: 23]
     """
     
     @property

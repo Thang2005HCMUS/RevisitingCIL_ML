@@ -4,26 +4,29 @@
 RevisitingCIL_ML/
 │
 ├── main.py                           # Entry point: setup_parser(), load_json(), main() -> train()
+├── run_exp3_sensitivity.py           # Entry point Exp 3: 2D alpha-mixing & Stage-1 PCA sensitivity sweep
 ├── download_model.py                 # Tải các pretrained backbones từ model.txt vào pretrained_models/
 ├── download_dataset.py               # Tải dataset từ dataset.txt (hỗ trợ GDrive/SharePoint, kiểm tra HTML lỗi)
 ├── extract_zip.py                    # Giải nén các file .zip theo cấu hình extract_zip.txt
-├── dataset.txt / full_dataset.txt    # Danh sách URL tải datasets (CUB, IN-R, IN-A, OmniBenchmark, VTAB, ObjectNet)
+├── dataset.txt                       # Danh sách URL tải datasets (CUB, IN-R, IN-A, OmniBenchmark, VTAB, ObjectNet)
 ├── extract_zip.txt / model.txt       # Danh sách file nén và URL pretrained weights
 ├── SimpleCIL.ipynb                   # Notebook chạy thực nghiệm trên Google Colab
-├── README.md                         # Hướng dẫn cài đặt, W&B API key và chạy lệnh trên Colab
-├── requirements.txt / setup.py
+├── README.md / wandb.md              # Tổng quan dự án, bảng mapping thực nghiệm và hướng dẫn W&B/Colab
+├── requirements.txt                  # Danh sách thư viện phụ thuộc Python
 │
-├── exps/                             # Cấu hình JSON chuẩn cho các thí nghiệm Table 1 & ResNet
+├── exps/                             # Cấu hình JSON chuẩn cho các thí nghiệm Table 1, Exp 2 & Exp 3
 │   ├── simplecil/                    # Baseline đóng băng hoàn toàn (7 datasets)
 │   ├── aper_finetune/                # APER w/ Finetune (7 datasets)
 │   ├── aper_vpt-shallow/             # APER w/ VPT-Shallow (7 datasets)
 │   ├── aper_vpt-deep/                # APER w/ VPT-Deep (7 datasets)
 │   ├── aper_ssf/                     # APER w/ SSF (7 datasets + nhánh resnet/)
 │   ├── aper_adapter/                 # APER w/ Adapter (7 datasets)
-│   └── aper_bn/                      # APER w/ BN Tuning cho ResNet18 (cifar224, omni)
+│   ├── aper_bn/                      # APER w/ BN Tuning cho ResNet18 (cifar224, omni)
+│   ├── exp2_submodules/              # Cấu hình nhánh 2A (ImageNet-A B100 Inc5)
+│   ├── exp2_adapt_stages/            # Cấu hình nhánh 2B (CIFAR-224 B0 Inc10)
+│   └── exp3_analysis/                # Cấu hình JSON quét lưới 2D (alpha, k) cho Exp 3 (cifar224, imagenetr, cub)
 │
-├── configs/                          # Cấu hình YAML mẫu (simplecil_cifar100.yaml, aper_adapter_imagenetr.yaml)
-├── experiments/                      # Thư mục lưu kết quả thực nghiệm
+├── experiments/                      # Thư mục lưu kết quả thực nghiệm (artifacts/logs)
 │
 ├── src/                              # Mã nguồn chính
 │   ├── data/                         # Quản lý dữ liệu & phân chia CIL tasks
@@ -33,14 +36,12 @@ RevisitingCIL_ML/
 │   ├── convs/                        # Định nghĩa kiến trúc backbone tích hợp PET (tương thích timm >= 1.0)
 │   │   ├── vision_transformer_adapter.py  # ViT + AdaptMLP (vit_base_patch16_224[_in21k]_adapter)
 │   │   ├── vision_transformer_ssf.py      # ViT + Scale & Shift (_create_vision_transformer)
-│   │   ├── vpt.py                         # ViT + Visual Prompt Tuning (build_promptmodel)
-│   │   ├── new_adapter.py / new_ssf.py    # Bản viết lại cấu trúc Adapter & SSF
-│   │   └── *.txt                          # Mã tham chiếu kiến trúc ResNet/linears gốc
+│   │   └── vpt.py                         # ViT + Visual Prompt Tuning (build_promptmodel)
 │   │
 │   ├── models/                       # Khởi tạo backbone, hợp nhất nhánh & bộ phân loại
 │   │   ├── backbones.py              # get_pretrained_model(), SSFHeadWrapper (ResNet SSF)
 │   │   ├── classifiers.py            # CosinePrototypeClassifier: register_prototypes(), forward()
-│   │   └── merged_encoder.py         # DualBranchEncoder: ghép đặc trưng [phi*(x), phi(x)]
+│   │   └── merged_encoder.py         # DualBranchEncoder: ghép đặc trưng [phi*(x), phi(x)] (merge_mode, alpha, projector)
 │   │
 │   ├── tuning/                       # Strategy Pattern cho các kỹ thuật tinh chỉnh (PET)
 │   │   ├── __init__.py               # Factory get_tuning_strategy(convnet_type, model_name)
@@ -56,13 +57,16 @@ RevisitingCIL_ML/
 │   │   ├── learner.py                # train(), _train(), _init_wandb(), APERLearner
 │   │   └── evaluator.py              # evaluate(), _compute_metrics() (Top-1, Top-5, Old/New, Grouped)
 │   │
+│   ├── analysis/                     # Module phân tích mở rộng (Exp 3)
+│   │   └── sensitivity_sweep.py      # extract_and_cache_features(), run_2d_sensitivity_sweep(), vẽ biểu đồ & log W&B
+│   │
 │   └── utils/                        # Tiện ích phụ trợ
-│       ├── logger.py                 # setup_logger()
 │       └── metrics.py                # count_parameters(), tensor2numpy(), target2onehot()
 │
 └── tests/                            # Unit tests
     ├── test_models.py                # Kiểm tra kiến trúc/forward model
-    └── test_wandb_tracking.py        # Kiểm tra metric Table 1 & tích hợp W&B
+    ├── test_wandb_tracking.py        # Kiểm tra metric Table 1 & tích hợp W&B
+    └── test_exp3_sensitivity.py      # Kiểm tra Exp 3: alpha-mixing, caching, PCA SVD fallback, plots & W&B
 ```
 
 ---
@@ -77,6 +81,7 @@ RevisitingCIL_ML/
 | **Tuning Strategies** | `src/tuning/__init__.py`: `get_tuning_strategy()`<br>`FreezeStrategy`, `FinetuneStrategy`, `BNTuningStrategy`, `PromptStrategy`, `SSFStrategy`, `AdapterStrategy` | Chọn chiến lược theo `(convnet_type, model_name)` và bật `requires_grad` đúng nhóm tham số PET (hoặc reset BN stats với BN Tuning) trước khi thích ứng ở Task 0. |
 | **Learner & W&B** | `src/framework/learner.py`: `train()`, `_train()`, `_init_wandb()`, `_resolve_method_name()`, `APERLearner` | Điều phối vòng lặp $B$ task (`execute_task`, `_adapt_model`, `_update_prototypes`, `evaluate`), tính chỉ số Table 1 ($\bar{\mathcal{A}}$ `avg_acc`, $\mathcal{A}_B$ `last_acc`) và log lên W&B. |
 | **Evaluator** | `src/framework/evaluator.py`: `evaluate()`, `_compute_metrics()` | Tính `top1` ($\mathcal{A}_b$), `top5`, `old`, `new` và `grouped` accuracy trên các lớp đã học. |
+| **Exp 3 Sweep** | `run_exp3_sensitivity.py`<br>`src/analysis/sensitivity_sweep.py`: `extract_and_cache_features()`, `run_2d_sensitivity_sweep()`, `generate_sensitivity_plots()` | Cache đặc trưng hai nhánh sau Stage 0, quét lưới $(\alpha, k)$ với PCA / Random Subsampling, xuất CSV/PNG và đẩy bảng/biểu đồ lên W&B. |
 | **Download Guard** | `download_dataset.py`: `download_datasets()`, `is_html_error_file()` | Tải dữ liệu qua Google Drive/OneDrive và tự xóa file `.zip` giả nếu bị trả về trang HTML lỗi (hết quota). |
 
 ---

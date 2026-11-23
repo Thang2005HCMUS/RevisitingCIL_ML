@@ -1,0 +1,32 @@
+{
+    "prefix": "exp3",
+    "dataset": "imagenetr",
+    "memory_size": 2000,
+    "memory_per_class": 20,
+    "fixed_memory": false,
+    "shuffle": true,
+    "init_cls": 5,
+    "increment": 5,
+    "model_name": "aper_adapter",
+    "convnet_type": "pretrained_vit_b16_224_in21k_adapter",
+    "weight_decay": 0.0005,
+    "prompt_token_num": 30,
+    "ffn_num": 64,
+    "optimizer": "sgd",
+    "min_lr": 0,
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "tuned_epoch": 20,
+    "init_lr": 0.01,
+    "batch_size": 48,
+    "sweep_method": "both",
+    "alpha_grid": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+    "k_grid": [16, 32, 64, 128, 256, 512, 768, 1536],
+    "random_seeds": [1993, 1994, 1995],
+    "cache_path": "experiments/exp3_analysis/imagenetr/imagenetr_seed1993_features.pt",
+    "output_dir": "experiments/exp3_analysis/imagenetr"
+}

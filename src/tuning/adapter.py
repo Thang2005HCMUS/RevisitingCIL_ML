@@ -5,7 +5,6 @@ from .base import TuningStrategy
 class AdapterStrategy(TuningStrategy):
     """
     Chiến lược Adapter/AdaptFormer.
-   [cite: 23]
     """
     @property
     def requires_training(self) -> bool:

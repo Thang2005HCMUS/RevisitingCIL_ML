@@ -8,7 +8,6 @@ from .finetune import FinetuneStrategy
 def get_tuning_strategy(convnet_type: str, model_name: str = "") -> TuningStrategy:
     """
     Hàm Factory để trả về TuningStrategy phù hợp dựa trên tên convnet và model_name.
-   [cite: 23]
     """
     convnet_type = convnet_type.lower()
     model_name = model_name.lower()
@@ -18,12 +17,11 @@ def get_tuning_strategy(convnet_type: str, model_name: str = "") -> TuningStrate
     elif "adapter" in convnet_type:
         return AdapterStrategy()
     elif "vpt" in convnet_type:
-        return PromptStrategy() 
-        pass
-    elif "bn" in convnet_type or "bn" in model_name: # <--- Bắt sự kiện BN Tuning
+        return PromptStrategy()
+    elif "bn" in convnet_type or "bn" in model_name:
         return BNTuningStrategy()
-    elif "finetune" in convnet_type or "finetune" in model_name: # <--- Bắt sự kiện Finetune
+    elif "finetune" in convnet_type or "finetune" in model_name:
         return FinetuneStrategy()
     else:
-        # Mặc định là SimpleCIL (đóng băng hoàn toàn)[cite: 3, 23]
+        # Mặc định là SimpleCIL (đóng băng hoàn toàn)
         return FreezeStrategy()

@@ -5,6 +5,7 @@ RevisitingCIL_ML/
 │
 ├── main.py                           # Entry point: setup_parser(), load_json(), main() -> train()
 ├── run_exp3_sensitivity.py           # Entry point Exp 3: 2D alpha-mixing & Stage-1 PCA sensitivity sweep
+├── run_critique_micro_exps.py        # Entry point Exp 4: Critique micro-experiments (norm audit & latency bench)
 ├── download_model.py                 # Tải các pretrained backbones từ model.txt vào pretrained_models/
 ├── download_dataset.py               # Tải dataset từ dataset.txt (hỗ trợ GDrive/SharePoint, kiểm tra HTML lỗi)
 ├── extract_zip.py                    # Giải nén các file .zip theo cấu hình extract_zip.txt
@@ -57,8 +58,9 @@ RevisitingCIL_ML/
 │   │   ├── learner.py                # train(), _train(), _init_wandb(), APERLearner
 │   │   └── evaluator.py              # evaluate(), _compute_metrics() (Top-1, Top-5, Old/New, Grouped)
 │   │
-│   ├── analysis/                     # Module phân tích mở rộng (Exp 3)
-│   │   └── sensitivity_sweep.py      # extract_and_cache_features(), run_2d_sensitivity_sweep(), vẽ biểu đồ & log W&B
+│   ├── analysis/                     # Module phân tích mở rộng (Exp 3 & Exp 4)
+│   │   ├── sensitivity_sweep.py      # extract_and_cache_features(), run_2d_sensitivity_sweep(), vẽ biểu đồ & log W&B
+│   │   └── critique_audits.py        # compute_norm_imbalance_stats(), run_norm_merge_audit(), benchmark_inference_variants()
 │   │
 │   └── utils/                        # Tiện ích phụ trợ
 │       └── metrics.py                # count_parameters(), tensor2numpy(), target2onehot()
@@ -66,7 +68,8 @@ RevisitingCIL_ML/
 └── tests/                            # Unit tests
     ├── test_models.py                # Kiểm tra kiến trúc/forward model
     ├── test_wandb_tracking.py        # Kiểm tra metric Table 1 & tích hợp W&B
-    └── test_exp3_sensitivity.py      # Kiểm tra Exp 3: alpha-mixing, caching, PCA SVD fallback, plots & W&B
+    ├── test_exp3_sensitivity.py      # Kiểm tra Exp 3: alpha-mixing, caching, PCA SVD fallback, plots & W&B
+    └── test_critique_micro_exps.py   # Kiểm tra Exp 4: norm imbalance, alpha_eff, scale invariance, latency/mem & W&B tags
 ```
 
 ---
@@ -82,6 +85,7 @@ RevisitingCIL_ML/
 | **Learner & W&B** | `src/framework/learner.py`: `train()`, `_train()`, `_init_wandb()`, `_resolve_method_name()`, `APERLearner` | Điều phối vòng lặp $B$ task (`execute_task`, `_adapt_model`, `_update_prototypes`, `evaluate`), tính chỉ số Table 1 ($\bar{\mathcal{A}}$ `avg_acc`, $\mathcal{A}_B$ `last_acc`) và log lên W&B. |
 | **Evaluator** | `src/framework/evaluator.py`: `evaluate()`, `_compute_metrics()` | Tính `top1` ($\mathcal{A}_b$), `top5`, `old`, `new` và `grouped` accuracy trên các lớp đã học. |
 | **Exp 3 Sweep** | `run_exp3_sensitivity.py`<br>`src/analysis/sensitivity_sweep.py`: `extract_and_cache_features()`, `run_2d_sensitivity_sweep()`, `generate_sensitivity_plots()` | Cache đặc trưng hai nhánh sau Stage 0, quét lưới $(\alpha, k)$ với PCA / Random Subsampling, xuất CSV/PNG và đẩy bảng/biểu đồ lên W&B. |
+| **Exp 4 Critique Audits** | `run_critique_micro_exps.py`<br>`src/analysis/critique_audits.py`: `compute_norm_imbalance_stats()`, `run_norm_merge_audit()`, `benchmark_inference_variants()`, `log_critique_to_wandb()` | Kiểm toán lệch chuẩn $\ell_2$ ($\alpha_{\text{eff}}$) trên cache Exp 3 và benchmark độ trễ/bộ nhớ suy luận 1 nhánh vs. 2 nhánh vs. PCA, xuất CSV/JSON/PNG và log W&B gắn tag `empirics`. |
 | **Download Guard** | `download_dataset.py`: `download_datasets()`, `is_html_error_file()` | Tải dữ liệu qua Google Drive/OneDrive và tự xóa file `.zip` giả nếu bị trả về trang HTML lỗi (hết quota). |
 
 ---
